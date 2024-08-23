@@ -1,5 +1,6 @@
 import os
 import torch
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import math
@@ -8,7 +9,153 @@ import matplotlib.pyplot as plt
 from scipy import linalg
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.model_selection import StratifiedShuffleSplit
-from .dataset import SlidingWindowDataset, read_csv_files, handle_nans
+from .dataset import SlidingWindowDataset, read_csv_files
+
+def visualize_random_frames(positions, num_frames=10, head_offset=0.3, save_path='random_frames_plot.png'):
+    # Define joint connections based on parent-child relationships
+    joint_connections = [
+        (0, 1), (1, 2), (2, 3),  # Spine connections: PELVIS -> SPINE_NAVAL -> SPINE_CHEST -> NECK
+        (3, 4), (4, 5), (5, 6), (6, 7), (7, 8),  # Left arm: NECK -> CLAVICLE_LEFT -> SHOULDER_LEFT -> ELBOW_LEFT -> WRIST_LEFT -> HAND_LEFT
+        (7, 9),  # Left hand tip
+        (7, 10),  # Left thumb
+        (3, 11), (11, 12), (12, 13), (13, 14), (14, 15),  # Right arm: NECK -> CLAVICLE_RIGHT -> SHOULDER_RIGHT -> ELBOW_RIGHT -> WRIST_RIGHT -> HAND_RIGHT
+        (14, 16),  # Right hand tip
+        (14, 17),  # Right thumb
+        (0, 18), (18, 19), (19, 20), (20, 21),  # Left leg: PELVIS -> HIP_LEFT -> KNEE_LEFT -> ANKLE_LEFT -> FOOT_LEFT
+        (0, 22), (22, 23), (23, 24), (24, 25),  # Right leg: PELVIS -> HIP_RIGHT -> KNEE_RIGHT -> ANKLE_RIGHT -> FOOT_RIGHT
+        (3, 26), (26, 27), (26, 28), (26, 29), (26, 30), (26, 31)  # Head: NECK -> HEAD -> NOSE, EYE_LEFT, EAR_LEFT, EYE_RIGHT, EAR_RIGHT
+    ]
+
+    fig = plt.figure(figsize=(15, 15))
+    
+    sample_idx = 0
+    random_frames = np.random.choice(np.arange(0, 90), num_frames, replace=False)  # Choose random frames from 0 to 89
+    
+    for i, frame_idx in enumerate(random_frames):
+        ax = fig.add_subplot(5, 2, i + 1, projection='3d')
+        for joint1, joint2 in joint_connections:
+            joint1_coords = positions[sample_idx, frame_idx, joint1*3:(joint1*3)+3]
+            joint2_coords = positions[sample_idx, frame_idx, joint2*3:(joint2*3)+3]
+            
+            xs = [joint1_coords[2], joint2_coords[2]]  # Swap x and z
+            ys = [joint1_coords[1], joint2_coords[1]]
+            zs = [joint1_coords[0], joint2_coords[0]]  # Swap x and z
+            
+            ax.plot(xs, ys, zs, marker='o')
+
+        # For head extension (e.g., drawing the line for head offset)
+        shoulder_midpoint = (positions[sample_idx, frame_idx, 4*3:4*3+3] + positions[sample_idx, frame_idx, 11*3:11*3+3]) / 2  # Midpoint between left and right clavicles
+        hip_midpoint = (positions[sample_idx, frame_idx, 18*3:18*3+3] + positions[sample_idx, frame_idx, 22*3:22*3+3]) / 2  # Midpoint between left and right hips
+
+        xs = [shoulder_midpoint[2], hip_midpoint[2]]  # Swap x and z
+        ys = [shoulder_midpoint[1], hip_midpoint[1]]
+        zs = [shoulder_midpoint[0], hip_midpoint[0]]  # Swap x and z
+        
+        ax.plot(xs, ys, zs, marker='o', color='red')
+
+        head_point = shoulder_midpoint.copy()
+        head_point[1] += head_offset * np.linalg.norm(positions[sample_idx, frame_idx, 18*3:18*3+3] - positions[sample_idx, frame_idx, 22*3:22*3+3])
+
+        xs = [shoulder_midpoint[2], head_point[2]]  # Swap x and z
+        ys = [shoulder_midpoint[1], head_point[1]]
+        zs = [shoulder_midpoint[0], head_point[0]]  # Swap x and z
+        
+        ax.plot(xs, ys, zs, marker='o', color='blue')
+
+        ax.set_xlabel('Z')  # Swap labels
+        ax.set_ylabel('Y')
+        ax.set_zlabel('X')  # Swap labels
+        ax.set_title(f'Frame {frame_idx}')
+
+    plt.tight_layout()
+    plt.savefig(save_path)
+    print(f'Plot saved as {save_path}')
+
+def custom_sensor_loss(predictions, labels):
+    """
+    Custom loss function for the sensor model.
+
+    Args:
+        predictions (torch.Tensor): The model output, typically of shape (batch_size, num_classes).
+        labels (torch.Tensor): The ground truth labels, typically one-hot encoded with shape (batch_size, num_classes).
+
+    Returns:
+        torch.Tensor: The computed loss.
+    """
+    # Standard CrossEntropyLoss
+    loss = torch.nn.CrossEntropyLoss()(predictions, labels.argmax(dim=1))
+    
+    # Additional regularization or penalties can be added here if needed
+    # Example: penalty = compute_custom_penalty(predictions)
+    # loss += penalty
+
+    return loss
+
+
+def compute_loss(args, model, x0, context, t, mask=None, noise=None, device="cpu", diffusion_process=None, angular_loss=False, lip_reg=False, epoch=None):
+    """
+    Custom loss function for the diffusion model with noise normalization.
+
+    Args:
+        model (nn.Module): The diffusion model.
+        x0 (torch.Tensor): The original clean input (e.g., skeleton positions).
+        context (torch.Tensor): The context or conditioning input (e.g., sensor model output).
+        t (torch.Tensor): The time step indices.
+        mask (torch.Tensor, optional): A mask tensor indicating valid or invalid positions in the data.
+        noise (torch.Tensor, optional): The noise to be added.
+        device (str): The device to run the model on.
+        diffusion_process (DiffusionProcess): The diffusion process object.
+        angular_loss (bool): Whether to include angular loss in the computation.
+        lip_reg (bool): Whether to include Lipschitz regularization.
+        epoch (int, optional): The current training epoch, used for adjusting angular loss weight.
+
+    Returns:
+        torch.Tensor: The computed total loss.
+    """
+    if noise is None:
+        noise = torch.randn_like(x0)
+
+    # Ensure all tensors are on the correct device
+    x0 = x0.to(device)
+    context = context.to(device)
+    t = t.to(device)
+    noise = noise.to(device)
+
+    # Add noise based on the diffusion process
+    x_t_subset, _ = diffusion_process.add_noise(x0, t)
+    
+    # Generate the predicted noise for only the subset of joints
+    predicted_noise = model(x_t_subset, context, t).to(device)
+
+    # Normalize both the true noise and predicted noise to the range [-1, 1]
+    def normalize(tensor):
+        return 2 * (tensor - tensor.min()) / (tensor.max() - tensor.min()) - 1
+
+    noise = normalize(noise)
+    # predicted_noise = normalize(predicted_noise)
+
+    # Compute MSE loss for the subset of joints
+    mse_loss = F.mse_loss(noise, predicted_noise)
+    total_loss = mse_loss
+
+    # Optional angular loss
+    if args.angular_loss:
+        joint_angles = compute_joint_angles(noise)
+        predicted_joint_angles = compute_joint_angles(predicted_noise)
+        angular_loss_value = F.mse_loss(predicted_joint_angles, joint_angles)
+        total_loss += 0.5 * angular_loss_value
+
+    # Optional Lipschitz regularization (LipReg)
+    if args.lip_reg:
+        noisy_context = add_random_noise(context, noise_std=0.01, noise_fraction=0.2)
+        x_t_noisy, _ = diffusion_process.add_noise(x0, t, noisy_context)
+        predicted_noise_lr = model(x_t_noisy, noisy_context, t).to(device)
+        lip_reg_loss = F.mse_loss(noise, predicted_noise_lr)
+        total_loss += 0.5 * lip_reg_loss
+
+    return total_loss
+
+
 
 def add_random_noise(context, noise_std=0.01, noise_fraction=0.2):
     num_samples = context.size(0) 
@@ -24,6 +171,15 @@ def add_random_noise(context, noise_std=0.01, noise_fraction=0.2):
 def frobenius_norm_loss(predicted, target):
     # Calculate the Frobenius norm loss
     return torch.norm(predicted - target, p='fro')
+
+def min_max_scale(data, data_min, data_max, feature_range=(0, 1)):
+    data_min = np.array(data_min)
+    data_max = np.array(data_max)
+    
+    scale = (feature_range[1] - feature_range[0]) / (data_max - data_min + 1e-8)
+    min_range = feature_range[0]
+
+    return scale * (data - data_min) + min_range
 
 def prepare_dataset(args):
     if args.dataset_type == 'Own_data':
@@ -46,6 +202,12 @@ def prepare_dataset(args):
         # sensor1_data = {file: handle_nans(sensor_data1[file]) for file in common_files}
         # sensor2_data = {file: handle_nans(sensor_data2[file]) for file in common_files}
 
+        # Ensure consistent column sizes (96 columns for skeleton data)
+        for file in common_files:
+            if skeleton_data[file].shape[1] == 97:
+                # If there's an extra column, drop it (assumed to be the first column)
+                skeleton_data[file] = skeleton_data[file].iloc[:, 1:]  # Drop the first column
+
         # Extract activity codes from file names
         activity_codes = sorted(set(file.split('A')[1][:2].lstrip('0') for file in common_files))
 
@@ -55,7 +217,7 @@ def prepare_dataset(args):
         window_size = args.window_size
         overlap = args.overlap
 
-        # Instantiate the dataset without normalization yet
+        # Instantiate the dataset with Min-Max scaling applied at each window level
         dataset = SlidingWindowDataset(
             skeleton_data=skeleton_data,
             sensor1_data=sensor_data1,
@@ -64,40 +226,14 @@ def prepare_dataset(args):
             window_size=window_size,
             overlap=overlap,
             label_encoder=label_encoder,
-            skeleton_global_mean=None,  # Will be calculated later
-            skeleton_global_std=None,  # Will be calculated later
-            sensor1_global_mean=None,  # Will be calculated later
-            sensor1_global_std=None,  # Will be calculated later
-            sensor2_global_mean=None,  # Will be calculated later
-            sensor2_global_std=None,  # Will be calculated later
-            augment=args.augment
+            augment=args.augment,
+            scaling="minmax"  # Use Min-Max scaling for each window segment
         )
 
-        # Calculate global statistics using the entire dataset
-        skeleton_train_data = [dataset[i][0].numpy() for i in range(len(dataset))]
-        sensor1_train_data = [dataset[i][1].numpy() for i in range(len(dataset))]
-        sensor2_train_data = [dataset[i][2].numpy() for i in range(len(dataset))]
-
-        skeleton_global_mean = np.mean(np.concatenate(skeleton_train_data), axis=0)
-        skeleton_global_std = np.std(np.concatenate(skeleton_train_data), axis=0)
-        sensor1_global_mean = np.mean(np.concatenate(sensor1_train_data), axis=0)
-        sensor1_global_std = np.std(np.concatenate(sensor1_train_data), axis=0)
-        sensor2_global_mean = np.mean(np.concatenate(sensor2_train_data), axis=0)
-        sensor2_global_std = np.std(np.concatenate(sensor2_train_data), axis=0)
-
-        # Apply the global statistics for normalization to the entire dataset
-        dataset.skeleton_global_mean = skeleton_global_mean
-        dataset.skeleton_global_std = skeleton_global_std
-        dataset.sensor1_global_mean = sensor1_global_mean
-        dataset.sensor1_global_std = sensor1_global_std
-        dataset.sensor2_global_mean = sensor2_global_mean
-        dataset.sensor2_global_std = sensor2_global_std
-        dataset.normalize = True  # Enable normalization within the dataset
-
-        # Return the full dataset
         return dataset
     else:
         raise ValueError("Only 'Own_data' dataset type is supported. 'UTD_MHAD' is not supported yet.")
+
 
 def sample_by_t(tensor_to_sample, timesteps, x_shape):
     batch_size = timesteps.shape[0]
@@ -106,44 +242,44 @@ def sample_by_t(tensor_to_sample, timesteps, x_shape):
     sampled_tensor = torch.reshape(sampled_tensor, (batch_size,) + (1,) * (len(x_shape) - 1))
     return sampled_tensor
 
-def compute_loss(args, model, x0, context, t, epoch, noise=None, device="cpu", diffusion_process=None, angular_loss=False, lip_reg=False):
-    if noise is None:
-        noise = torch.randn_like(x0)
+# def compute_loss(args, model, x0, context, t, epoch, noise=None, device="cpu", diffusion_process=None, angular_loss=False, lip_reg=False):
+#     if noise is None:
+#         noise = torch.randn_like(x0)
     
-    x0 = x0.to(device)
-    context = context.to(device)
-    t = t.to(device)
-    noise = noise.to(device)
+#     x0 = x0.to(device)
+#     context = context.to(device)
+#     t = t.to(device)
+#     noise = noise.to(device)
 
-    # Add noise based on the diffusion process
-    x_t_subset, _ = diffusion_process.add_noise(x0, t, noise)
+#     # Add noise based on the diffusion process
+#     x_t_subset, _ = diffusion_process.add_noise(x0, t)
     
-    # Generate the predicted noise for only the subset of joints
-    predicted_noise = model(x_t_subset, context, t).to(device)
+#     # Generate the predicted noise for only the subset of joints
+#     predicted_noise = model(x_t_subset, context, t).to(device)
 
-    # Compute MSE loss for the subset of joints
-    loss = F.mse_loss(noise, predicted_noise)
+#     # Compute MSE loss for the subset of joints
+#     loss = torch.mean(F.mse_loss(noise, predicted_noise))
 
-    # Optional angular loss
-    if angular_loss and epoch is not None:
-        joint_angles = compute_joint_angles(x0)
-        predicted_joint_angles = compute_joint_angles(predicted_noise)
-        assert not torch.isnan(predicted_joint_angles).any(), "Predicted joint angles contain NaNs!"
-        angular_loss_value = frobenius_norm_loss(predicted_joint_angles, joint_angles)
-        total_loss = loss + (0.05 * angular_loss_value)
-    else:
-        total_loss = loss
+#     # Optional angular loss
+#     if angular_loss and epoch is not None:
+#         joint_angles = compute_joint_angles(x0)
+#         predicted_joint_angles = compute_joint_angles(predicted_noise)
+#         assert not torch.isnan(predicted_joint_angles).any(), "Predicted joint angles contain NaNs!"
+#         angular_loss_value = frobenius_norm_loss(predicted_joint_angles, joint_angles)
+#         total_loss = loss + (0.05 * angular_loss_value)
+#     else:
+#         total_loss = loss
     
-    if lip_reg and epoch is not None:
-        noisy_context = add_random_noise(context, noise_std=0.01, noise_fraction=0.2)
-        x_t_noisy, _ = diffusion_process.add_noise(x0, t, noisy_context)
-        predicted_noise_lr = model(x_t_noisy, noisy_context, t).to(device)
-        lr_loss = F.mse_loss(noise, predicted_noise_lr)
-        total_loss = loss + (0.5 * lr_loss)
-    else:
-        total_loss = loss
+#     if lip_reg and epoch is not None:
+#         noisy_context = add_random_noise(context, noise_std=0.01, noise_fraction=0.2)
+#         x_t_noisy, _ = diffusion_process.add_noise(x0, t, noisy_context)
+#         predicted_noise_lr = model(x_t_noisy, noisy_context, t).to(device)
+#         lr_loss = F.mse_loss(noise, predicted_noise_lr)
+#         total_loss = loss + (0.5 * lr_loss)
+#     else:
+#         total_loss = loss
 
-    return total_loss
+#     return total_loss
 
 
 def extract_joint_subset(positions):
@@ -188,42 +324,48 @@ def compute_joint_angles(positions):
     batch_size, num_frames, _ = positions.shape
 
     # Reshape positions to (batch_size, num_frames, 32, 3)
-    # Each joint is represented by 3 values (x, y, z)
     positions = positions.view(batch_size, num_frames, 32, 3)
 
-    # Extract the relevant joint positions based on joint_pairs
-    joint_indices = joint_pairs.flatten()  # Flatten to get [5, 6, 7, 12, 13, 14, 18, 19, 20, 22, 23, 24]
-    positions_subset = positions[:, :, joint_indices]  # Shape: [batch_size, num_frames, 12, 3]
+    # Process in smaller chunks if the tensor is large
+    chunk_size = 100  # Adjust based on memory capacity
+    angles = []
 
-    # Compute vectors for the joint pairs
-    vectors1 = positions_subset[:, :, joint_pairs[:, 1] - joint_indices.min()] - positions_subset[:, :, joint_pairs[:, 0] - joint_indices.min()]
-    vectors2 = positions_subset[:, :, joint_pairs[:, 1] - joint_indices.min()] - positions_subset[:, :, joint_pairs[:, 2] - joint_indices.min()]
+    for i in range(0, num_frames, chunk_size):
+        positions_chunk = positions[:, i:i + chunk_size]
+        
+        # Compute vectors for the joint pairs
+        vectors1 = positions_chunk[:, :, joint_pairs[:, 1] - joint_pairs.min()] - positions_chunk[:, :, joint_pairs[:, 0] - joint_pairs.min()]
+        vectors2 = positions_chunk[:, :, joint_pairs[:, 1] - joint_pairs.min()] - positions_chunk[:, :, joint_pairs[:, 2] - joint_pairs.min()]
 
-    # Compute dot product
-    dot_product = torch.sum(vectors1 * vectors2, dim=-1)  # Shape: [batch_size, num_frames, 4]
+        # Compute dot product
+        dot_product = torch.sum(vectors1 * vectors2, dim=-1)
 
-    # Compute norms
-    norm1 = torch.norm(vectors1, dim=-1)
-    norm2 = torch.norm(vectors2, dim=-1)
+        # Compute norms
+        norm1 = torch.norm(vectors1, dim=-1)
+        norm2 = torch.norm(vectors2, dim=-1)
 
-    # Avoid division by zero
-    denominator = norm1 * norm2
-    valid_denominator = denominator != 0
+        # Avoid division by zero
+        denominator = norm1 * norm2
+        valid_denominator = denominator != 0
 
-    # Compute cosine of angles where denominator is valid
-    cosine_angles = torch.zeros_like(dot_product)
-    cosine_angles[valid_denominator] = dot_product[valid_denominator] / denominator[valid_denominator]
+        # Compute cosine of angles where denominator is valid
+        cosine_angles = torch.zeros_like(dot_product)
+        epsilon = 1e-6
+        denominator = torch.clamp(denominator, min=epsilon)
+        cosine_angles[valid_denominator] = dot_product[valid_denominator] / denominator[valid_denominator]
 
-    # Clamp values to avoid numerical instability
-    cosine_angles = torch.clamp(cosine_angles, -1.0 + 1e-7, 1.0 - 1e-7)
+        # Clamp values to avoid numerical instability
+        cosine_angles = torch.clamp(cosine_angles, -1.0 + 1e-7, 1.0 - 1e-7)
 
-    # Compute angles in radians
-    angles = torch.acos(cosine_angles)
+        # Compute angles in radians
+        chunk_angles = torch.acos(cosine_angles)
+        chunk_angles[~valid_denominator] = 0
 
-    # Set angles to zero where vectors are zero-length
-    angles[~valid_denominator] = 0
+        angles.append(chunk_angles)
 
-    return angles  # Shape: [batch_size, num_frames, 4]
+    # Concatenate all angle chunks
+    return torch.cat(angles, dim=1)
+
 
 def get_alpha(current_epoch, max_alpha=1.0, warmup_epochs=10):
     """
