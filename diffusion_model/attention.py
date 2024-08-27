@@ -3,66 +3,49 @@ from torch import nn
 import torch.nn.functional as F
 
 class SelfAttention(nn.Module):
-    def __init__(self, n_head: int, n_embd: int, in_proj_bias=True):
+    def __init__(self, latent_dim, num_heads=4):
         super().__init__()
-        self.n_head = n_head
-        self.n_embd = n_embd
-        self.q_proj = nn.Linear(n_embd, n_embd, bias=in_proj_bias)
-        self.k_proj = nn.Linear(n_embd, n_embd, bias=in_proj_bias)
-        self.v_proj = nn.Linear(n_embd, n_embd, bias=in_proj_bias)
-        self.out_proj = nn.Linear(n_embd, n_embd)
+        self.attention = nn.MultiheadAttention(embed_dim=latent_dim, num_heads=num_heads, batch_first=True)
+        self.layernorm = nn.LayerNorm(latent_dim)
+        self.feedforward = nn.Sequential(
+            nn.Linear(latent_dim, latent_dim * 4),
+            nn.GELU(),
+            nn.Linear(latent_dim * 4, latent_dim)
+        )
 
-    def forward(self, x, mask=None):
-        batch_size, seq_len, _ = x.size()
-        q = self.q_proj(x)
-        k = self.k_proj(x)
-        v = self.v_proj(x)
-
-        q = q.view(batch_size, seq_len, self.n_head, self.n_embd // self.n_head)
-        k = k.view(batch_size, seq_len, self.n_head, self.n_embd // self.n_head)
-        v = v.view(batch_size, seq_len, self.n_head, self.n_embd // self.n_head)
-
-        attn_weights = torch.einsum("bqhd,bkhd->bhqk", q, k) / (self.n_embd // self.n_head) ** 0.5
-        if mask is not None:
-            attn_weights.masked_fill_(mask == 0, -1e9)
-
-        attn_weights = F.softmax(attn_weights, dim=-1)
-        attn_output = torch.einsum("bhqk,bkhd->bqhd", attn_weights, v)
-        attn_output = attn_output.contiguous().view(batch_size, seq_len, self.n_embd)
-        output = self.out_proj(attn_output)
-        return output
+    def forward(self, latent):
+        # Apply self-attention
+        attention_output, _ = self.attention(latent, latent, latent)
+        latent = self.layernorm(attention_output + latent)  # Residual connection
+        
+        # Feedforward
+        latent = latent + self.feedforward(latent)  # Residual connection
+        return latent
 
 class CrossAttention(nn.Module):
-    def __init__(self, n_head: int, n_embd: int, d_context: int, in_proj_bias=True):
+    def __init__(self, latent_dim, context_dim, num_heads=4):
         super().__init__()
-        self.n_head = n_head
-        self.n_embd = n_embd
-        self.d_context = d_context
+        self.attention = nn.MultiheadAttention(embed_dim=latent_dim, num_heads=num_heads, batch_first=True)
+        self.layernorm = nn.LayerNorm(latent_dim)
+        self.feedforward = nn.Sequential(
+            nn.Linear(latent_dim, latent_dim * 4),
+            nn.GELU(),
+            nn.Linear(latent_dim * 4, latent_dim)
+        )
+        self.context_projection = nn.Linear(context_dim, latent_dim)
 
-        self.q_proj = nn.Linear(n_embd, n_embd, bias=in_proj_bias)
-        self.k_proj = nn.Linear(d_context, n_embd, bias=in_proj_bias)
-        self.v_proj = nn.Linear(d_context, n_embd, bias=in_proj_bias)
-        self.out_proj = nn.Linear(n_embd, n_embd)
-
-    def forward(self, x, context):
-        batch_size, seq_len, _ = x.size()
-        context_len = context.size(1)
-
-        q = self.q_proj(x)
-        k = self.k_proj(context)
-        v = self.v_proj(context)
-
-        q = q.view(batch_size, seq_len, self.n_head, self.n_embd // self.n_head)
-        k = k.view(batch_size, context_len, self.n_head, self.n_embd // self.n_head)
-        v = v.view(batch_size, context_len, self.n_head, self.n_embd // self.n_head)
-
-        attn_weights = torch.einsum("bqhd,bkhd->bhqk", q, k) / (self.n_embd // self.n_head) ** 0.5
-        attn_weights = F.softmax(attn_weights, dim=-1)
-        attn_output = torch.einsum("bhqk,bkhd->bqhd", attn_weights, v)
-        attn_output = attn_output.contiguous().view(batch_size, seq_len, self.n_embd)
-        output = self.out_proj(attn_output)
-        return output
-    
+    def forward(self, latent, context):
+        # Expand context to match the sequence length of latent
+        context = self.context_projection(context)  # Project context to match latent dimension
+        context = context.unsqueeze(1).expand(-1, latent.size(1), -1)  # Shape: [batch_size, 90, latent_dim]
+        
+        # Apply cross-attention
+        attention_output, _ = self.attention(latent, context, context)
+        latent = self.layernorm(attention_output + latent)  # Residual connection
+        
+        # Feedforward
+        latent = latent + self.feedforward(latent)  # Residual connection
+        return latent
 class TemporalAttention(nn.Module):
     def __init__(self, channels):
         super(TemporalAttention, self).__init__()

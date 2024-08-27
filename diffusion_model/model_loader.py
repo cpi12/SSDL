@@ -6,19 +6,51 @@ from .decoder import Decoder1D
 from .sensor_model import CombinedLSTMClassifier
 import torch
 import torch.nn as nn
+
+# def get_edge_index(device='cpu'):
+#     # Define the connections for the filtered key joints
+#     connections = [
+#         (0, 1), (1, 2), (2, 3),  # Left arm: Neck -> Left Shoulder -> Left Elbow -> Left Wrist
+#         (0, 4), (4, 5), (5, 6),  # Right arm: Neck -> Right Shoulder -> Right Elbow -> Right Wrist
+#         (7, 8), (8, 9),  # Left leg: Hip Left -> Knee Left -> Ankle Left
+#         (10, 11), (11, 12)  # Right leg: Hip Right -> Knee Right -> Ankle Right
+#     ]
+#     edge_index = torch.tensor(connections, dtype=torch.long).t().contiguous()
+#     return edge_index.to(device)
+
 def get_edge_index(device='cpu'):
+    # Updated connections based on the filtered key_joint_indexes
     connections = [
-        (0, 1), (1, 2), (2, 3),  # Spine
-        (3, 4), (4, 5), (5, 6), (6, 7), (7, 8), (8, 9),  # Left arm
-        (7, 10),  # Left thumb
-        (3, 11), (11, 12), (12, 13), (13, 14), (14, 15), (15, 16),  # Right arm
-        (14, 17),  # Right thumb
-        (0, 18), (18, 19), (19, 20), (20, 21),  # Left leg
-        (0, 22), (22, 23), (23, 24), (24, 25),  # Right leg
-        (3, 26), (26, 27), (26, 28), (26, 29), (26, 30), (26, 31)  # Head
+        # Spine
+        (0, 1),  # Pelvis -> Spine Chest
+        (1, 2),  # Spine Chest -> Neck
+        (2, 15), # Neck -> Head
+
+        # Left Arm
+        (2, 3),  # Neck -> Left Shoulder
+        (3, 4),  # Left Shoulder -> Left Elbow
+        (4, 5),  # Left Elbow -> Left Wrist
+
+        # Right Arm
+        (2, 6),  # Neck -> Right Shoulder
+        (6, 7),  # Right Shoulder -> Right Elbow
+        (7, 8),  # Right Elbow -> Right Wrist
+
+        # Left Leg
+        (0, 9),  # Pelvis -> Left Hip
+        (9, 10), # Left Hip -> Left Knee
+        (10, 11), # Left Knee -> Left Ankle
+
+        # Right Leg
+        (0, 12),  # Pelvis -> Right Hip
+        (12, 13), # Right Hip -> Right Knee
+        (13, 14)  # Right Knee -> Right Ankle
     ]
+    
+    # Converting the connections to a PyTorch edge index tensor
     edge_index = torch.tensor(connections, dtype=torch.long).t().contiguous()
     return edge_index.to(device)
+
 
 def load_encoder(device):
     """

@@ -12,7 +12,7 @@ from torch.utils.data import Subset
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 from torch.utils.tensorboard import SummaryWriter
-from diffusion_model.diffusion import DiffusionProcess
+from diffusion_model.diffusion import DiffusionProcess, Scheduler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from diffusion_model.model_loader import load_sensor_model, load_diffusion
 from diffusion_model.util import (
@@ -116,27 +116,30 @@ def train_diffusion_model(rank, args, device, train_loader, val_loader):
 
     diffusion_optimizer = optim.Adam(
         diffusion_model.parameters(),
-        lr=1e-3,
+        lr=1e-5,
+        eps=1e-8,
         betas=(0.9, 0.98)
     )
 
-    # Optional: Include warmup for learning rate scheduling
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(diffusion_optimizer, mode='min', factor=0.5, patience=5, verbose=True)
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(diffusion_optimizer, mode='min', factor=0.5, patience=5, verbose=True)
 
+    # Setup output directories
     diffusion_model_save_dir = os.path.join(args.output_dir, "diffusion_model")
     ensure_dir(diffusion_model_save_dir, rank)
 
-    diffusion_log_dir = os.path.join(diffusion_model_save_dir, "diffusion_model")
-    ensure_dir(diffusion_log_dir, rank)
-
     writer = None
     if rank == 0:
-        writer = SummaryWriter(log_dir=diffusion_log_dir)
+        writer = SummaryWriter(log_dir=diffusion_model_save_dir)
 
     best_loss = float('inf')
-    scaler = torch.cuda.amp.GradScaler()  # For mixed-precision training
+    scaler = torch.cuda.amp.GradScaler()
 
-    diffusion_process = DiffusionProcess(timesteps=args.timesteps, schedule_type='sigmoid')
+    # Initialize the diffusion process with the scheduler
+    diffusion_process = DiffusionProcess(
+        scheduler=Scheduler(sched_type='cosine', T=args.timesteps, step=1, device=device),
+        device=device,
+        ddim_scale=args.ddim_scale
+    )
 
     for epoch in range(args.epochs):
         diffusion_model.train()
@@ -197,11 +200,10 @@ def train_diffusion_model(rank, args, device, train_loader, val_loader):
                         angular_loss=args.angular_loss,
                         epoch=epoch
                     )
-
                 epoch_val_loss += loss.item()
 
         avg_val_loss = epoch_val_loss / len(val_loader)
-        scheduler.step(avg_val_loss)
+        # scheduler.step(avg_val_loss)
 
         if rank == 0:
             print(f"Epoch {epoch+1}/{args.epochs}, Average Training Loss: {avg_train_loss}, Average Validation Loss: {avg_val_loss}")
@@ -211,6 +213,121 @@ def train_diffusion_model(rank, args, device, train_loader, val_loader):
             if avg_val_loss < best_loss:
                 best_loss = avg_val_loss
                 torch.save(diffusion_model.state_dict(), os.path.join(diffusion_model_save_dir, f"best_diffusion_model.pth"))
+                print(f"Saved best diffusion model with Validation Loss: {best_loss}")
+
+def train_diffusion_model_with_transfer(rank, args, device, train_loader, val_loader):
+    print("Training Diffusion model with Transfer Learning")
+    sensor_model = load_sensor_model(args, device)
+    diffusion_model = load_diffusion(device)
+
+    # Load the pre-trained model weights and adjust the state dict
+    checkpoint = torch.load('results/diffusion_model/best_diffusion_model.pth')
+    state_dict = checkpoint
+    new_state_dict = {}
+    for key in state_dict:
+        new_key = key.replace("module.", "")  # Remove the "module." prefix
+        new_state_dict[new_key] = state_dict[key]
+
+    # Load the modified state dict
+    diffusion_model.load_state_dict(new_state_dict, strict=False)
+
+    # Freeze the encoder layers until the cross-attention
+    for name, param in diffusion_model.named_parameters():
+        if 'encoder' in name:
+            param.requires_grad = False
+        elif 'cross_attn' in name:
+            break  # Stop freezing when cross-attention is reached
+
+    sensor_model = DDP(sensor_model, device_ids=[rank], find_unused_parameters=True)
+    diffusion_model = DDP(diffusion_model, device_ids=[rank], find_unused_parameters=True)
+
+    diffusion_optimizer = optim.Adam(
+        diffusion_model.parameters(),
+        lr=1e-5,
+        eps=1e-8,
+        betas=(0.9, 0.98)
+    )
+
+    # Training loop remains mostly the same
+    best_loss = float('inf')
+    scaler = torch.cuda.amp.GradScaler()
+    diffusion_model_save_dir = os.path.join(args.output_dir, "diffusion_model_transfer")
+    ensure_dir(diffusion_model_save_dir, rank)
+    writer = SummaryWriter(log_dir=diffusion_model_save_dir) if rank == 0 else None
+
+    diffusion_process = DiffusionProcess(
+        scheduler=Scheduler(sched_type='cosine', T=args.timesteps, step=1, device=device),
+        device=device,
+        ddim_scale=args.ddim_scale
+    )
+
+    for epoch in range(args.epochs):
+        diffusion_model.train()
+        sensor_model.train()
+        epoch_train_loss = 0.0
+
+        for skeleton, sensor1, sensor2, mask in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} (Training)"):
+            skeleton, sensor1, sensor2, mask = skeleton.to(device), sensor1.to(device), sensor2.to(device), mask.to(device)
+            t = torch.randint(1, args.timesteps, (skeleton.shape[0],), device=device).long()
+            context = sensor_model(sensor1, sensor2, return_attn_output=True)
+            diffusion_optimizer.zero_grad()
+
+            with torch.cuda.amp.autocast():
+                loss = compute_loss(
+                    args=args,
+                    model=diffusion_model,
+                    x0=skeleton,
+                    context=context,
+                    t=t,
+                    mask=mask,
+                    device=device,
+                    diffusion_process=diffusion_process,
+                    angular_loss=args.angular_loss,
+                    epoch=epoch
+                )
+
+            scaler.scale(loss).backward()
+            torch.nn.utils.clip_grad_norm_(filter(lambda p: p.requires_grad, diffusion_model.parameters()), max_norm=1.0)
+            scaler.step(diffusion_optimizer)
+            scaler.update()
+
+            epoch_train_loss += loss.item()
+
+        avg_train_loss = epoch_train_loss / len(train_loader)
+
+        diffusion_model.eval()
+        sensor_model.eval()
+        epoch_val_loss = 0.0
+        with torch.no_grad():
+            for skeleton, sensor1, sensor2, mask in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} (Validation)"):
+                skeleton, sensor1, sensor2, mask = skeleton.to(device), sensor1.to(device), sensor2.to(device), mask.to(device)
+                t = torch.randint(1, args.timesteps, (skeleton.shape[0],), device=device).long()
+
+                with torch.cuda.amp.autocast():
+                    loss = compute_loss(
+                        args=args,
+                        model=diffusion_model,
+                        x0=skeleton,
+                        context=sensor_model(sensor1, sensor2, return_attn_output=True),
+                        t=t,
+                        mask=mask,
+                        device=device,
+                        diffusion_process=diffusion_process,
+                        angular_loss=args.angular_loss,
+                        epoch=epoch
+                    )
+                epoch_val_loss += loss.item()
+
+        avg_val_loss = epoch_val_loss / len(val_loader)
+
+        if rank == 0:
+            print(f"Epoch {epoch+1}/{args.epochs}, Average Training Loss: {avg_train_loss}, Average Validation Loss: {avg_val_loss}")
+            writer.add_scalar('Loss/Train', avg_train_loss, epoch)
+            writer.add_scalar('Loss/Validation', avg_val_loss, epoch)
+
+            if avg_val_loss < best_loss:
+                best_loss = avg_val_loss
+                torch.save(diffusion_model.state_dict(), os.path.join(diffusion_model_save_dir, f"best_diffusion_model_transfer.pth"))
                 print(f"Saved best diffusion model with Validation Loss: {best_loss}")
 
 def main(rank, args):
@@ -243,6 +360,8 @@ def main(rank, args):
 
     if args.train_sensor_model:
         train_sensor_model(rank, args, device, train_loader, val_loader)
+    elif args.transfer_learn:
+        train_diffusion_model_with_transfer(rank, args, device, train_loader, val_loader)
     else:
         train_diffusion_model(rank, args, device, train_loader, val_loader)
 
@@ -263,17 +382,20 @@ if __name__ == "__main__":
     parser.add_argument("--sensor_lr", type=float, default=1e-3, help="Weight decay for sensor regularization")
     parser.add_argument("--min_lr", type=float, default=1e-5, help="Minimum learning rate for scheduler")
     parser.add_argument("--sensor_epoch", type=int, default=500, help="Number of epochs to train the sensor model")
-    parser.add_argument("--epochs", type=int, default=1000, help="Number of epochs to train the diffusion model")
+    parser.add_argument("--epochs", type=int, default=3000, help="Number of epochs to train the diffusion model")
     parser.add_argument("--step_size", type=int, default=20, help="Step size for weight decay")
     parser.add_argument("--world_size", type=int, default=8, help="Number of GPUs to use for training")
     parser.add_argument("--output_dir", type=str, default="./results", help="Directory to save the trained model")
     parser.add_argument("--dataset_type", type=str, default="Own_data", help="Dataset type")
-    parser.add_argument("--timesteps", type=int, default=100, help="Number of timesteps for the diffusion process")
+    parser.add_argument("--timesteps", type=int, default=1000, help="Number of timesteps for the diffusion process")
     parser.add_argument("--angular_loss", type=eval, choices=[True, False], default=False, help="Whether to use angular loss during training")
     parser.add_argument("--train_sensor_model", type=eval, choices=[True, False], default=False, help="Set to True to train the sensor model; set to False to train the diffusion model")
     parser.add_argument("--augment",type=eval, choices=[True, False], default=True, help="Flag to determine whether data augmentation needed to be done or not")
-    parser.add_argument("--lip_reg",type=eval, choices=[True, False], default=False, help="Flag to determine whether to inlcude LR or not")
-    
+    parser.add_argument("--lip_reg",type=eval, choices=[True, False], default=True, help="Flag to determine whether to inlcude LR or not")
+    parser.add_argument("--predict_noise",type=eval, choices=[True, False], default=False, help="Flag to determine whether to inlcude LR or not")
+    parser.add_argument('--ddim_scale', type=float, default=0.5, help='Scale factor for DDIM (0 for pure DDIM, 1 for pure DDPM)')
+    parser.add_argument('--transfer_learn', type=eval, choices=[True, False], default=False, help='Set to True for transfer learning')
+
     args = parser.parse_args()
 
     mp.spawn(main, args=(args,), nprocs=args.world_size, join=True)

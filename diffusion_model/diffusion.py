@@ -1,26 +1,100 @@
 import torch
-import numpy as np
+import torch.nn as nn
 from tqdm import tqdm
 
+class Scheduler:
+    def __init__(self, sched_type, T, step, device):
+        self.device = device
+        t_vals = torch.arange(1, T + 1, step).to(torch.int)
+
+        if sched_type == "cosine":
+            def f(t):
+                s = 0.008
+                return torch.clamp(torch.cos(((t / T + s) / (1 + s)) * (torch.pi / 2)) ** 2 /
+                                   torch.cos(torch.tensor((s / (1 + s)) * (torch.pi / 2))) ** 2,
+                                   1e-10, 0.999)
+
+            self.a_bar_t = f(t_vals)
+            self.a_bar_t1 = f((t_vals - step).clamp(0, torch.inf))
+            self.beta_t = 1 - (self.a_bar_t / self.a_bar_t1)
+            self.beta_t = torch.clamp(self.beta_t, 1e-10, 0.999)
+            self.a_t = 1 - self.beta_t
+        else:  # Linear
+            self.beta_t = torch.linspace(1e-4, 0.02, T)
+            self.beta_t = self.beta_t[::step]
+            self.a_t = 1 - self.beta_t
+            self.a_bar_t = torch.stack([torch.prod(self.a_t[:i]) for i in range(1, (T // step) + 1)])
+            self.a_bar_t1 = torch.stack([torch.prod(self.a_t[:i]) for i in range(1, (T // step) + 1)])
+
+        self.sqrt_a_t = torch.sqrt(self.a_t)
+        self.sqrt_a_bar_t = torch.sqrt(self.a_bar_t)
+        self.sqrt_1_minus_a_bar_t = torch.sqrt(1 - self.a_bar_t)
+        self.sqrt_a_bar_t1 = torch.sqrt(self.a_bar_t1)
+        self.beta_tilde_t = ((1 - self.a_bar_t1) / (1 - self.a_bar_t)) * self.beta_t
+
+        self.to_device()
+
+    def to_device(self):
+        self.beta_t = self.beta_t.to(self.device)
+        self.a_t = self.a_t.to(self.device)
+        self.a_bar_t = self.a_bar_t.to(self.device)
+        self.a_bar_t1 = self.a_bar_t1.to(self.device)
+        self.sqrt_a_t = self.sqrt_a_t.to(self.device)
+        self.sqrt_a_bar_t = self.sqrt_a_bar_t.to(self.device)
+        self.sqrt_1_minus_a_bar_t = self.sqrt_1_minus_a_bar_t.to(self.device)
+        self.sqrt_a_bar_t1 = self.sqrt_a_bar_t1.to(self.device)
+        self.beta_tilde_t = self.beta_tilde_t.to(self.device)
+
+        self.beta_t = self.beta_t.unsqueeze(-1).unsqueeze(-1)
+        self.a_t = self.a_t.unsqueeze(-1).unsqueeze(-1)
+        self.a_bar_t = self.a_bar_t.unsqueeze(-1).unsqueeze(-1)
+        self.a_bar_t1 = self.a_bar_t1.unsqueeze(-1).unsqueeze(-1)
+        self.sqrt_a_t = self.sqrt_a_t.unsqueeze(-1).unsqueeze(-1)
+        self.sqrt_a_bar_t = self.sqrt_a_bar_t.unsqueeze(-1).unsqueeze(-1)
+        self.sqrt_1_minus_a_bar_t = self.sqrt_1_minus_a_bar_t.unsqueeze(-1).unsqueeze(-1)
+        self.sqrt_a_bar_t1 = self.sqrt_a_bar_t1.unsqueeze(-1).unsqueeze(-1)
+        self.beta_tilde_t = self.beta_tilde_t.unsqueeze(-1).unsqueeze(-1)
+
+    def sample_a_t(self, t):
+        return self.a_t[t - 1]
+
+    def sample_beta_t(self, t):
+        return self.beta_t[t - 1]
+
+    def sample_a_bar_t(self, t):
+        return self.a_bar_t[t - 1]
+
+    def sample_a_bar_t1(self, t):
+        return self.a_bar_t1[t - 1]
+
+    def sample_sqrt_a_t(self, t):
+        return self.sqrt_a_t[t - 1]
+
+    def sample_sqrt_a_bar_t(self, t):
+        return self.sqrt_a_bar_t[t - 1]
+
+    def sample_sqrt_1_minus_a_bar_t(self, t):
+        return self.sqrt_1_minus_a_bar_t[t - 1]
+
+    def sample_sqrt_a_bar_t1(self, t):
+        return self.sqrt_a_bar_t1[t - 1]
+
+    def sample_beta_tilde_t(self, t):
+        return self.beta_tilde_t[t - 1]
+
 class DiffusionProcess:
-    def __init__(self, timesteps=1000, beta_start=0.0001, beta_end=0.1, schedule_type='linear'):
+    def __init__(self, scheduler, device='cpu', ddim_scale=0.5):
         """
-        Initialize the DiffusionProcess class with basic settings.
+        Initialize the DiffusionProcess class with a scheduler.
 
         Args:
-            timesteps (int): Number of timesteps.
-            beta_start (float): Starting value of beta.
-            beta_end (float): Ending value of beta.
-            schedule_type (str): Type of noise schedule ('linear', 'cosine', etc.).
+            scheduler (DDIM_Scheduler): Scheduler for the beta noise term.
+            device (str): Device to run the diffusion process on ('cpu' or 'cuda').
+            ddim_scale (float): Scale between DDIM (0) and DDPM (1) sampling.
         """
-        self.timesteps = timesteps
-        self.betas = torch.linspace(beta_start, beta_end, timesteps, dtype=torch.float32, device='cuda')
-        self.alphas = 1.0 - self.betas
-        self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
-
-        # Precompute values used in the diffusion process
-        self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
-        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - self.alphas_cumprod)
+        self.scheduler = scheduler
+        self.device = device
+        self.ddim_scale = ddim_scale
 
     def add_noise(self, x0, t):
         """
@@ -35,13 +109,13 @@ class DiffusionProcess:
             torch.Tensor: Noise added.
         """
         noise = torch.randn_like(x0)
-        alpha_t = self.sqrt_alphas_cumprod[t].view(-1, 1, 1)
-        one_minus_alpha_t = self.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1)
-        xt = alpha_t * x0 + one_minus_alpha_t * noise
+        sqrt_a_bar_t = self.scheduler.sample_sqrt_a_bar_t(t).to(self.device)
+        sqrt_1_minus_a_bar_t = self.scheduler.sample_sqrt_1_minus_a_bar_t(t).to(self.device)
 
+        xt = sqrt_a_bar_t * x0 + sqrt_1_minus_a_bar_t * noise
         return xt, noise
 
-    def denoise(self, xt, context, t, model):
+    def denoise(self, xt, context, t, model, predict_noise=True):
         """
         Denoise the input data using the model.
 
@@ -50,19 +124,22 @@ class DiffusionProcess:
             context (torch.Tensor): Context or conditioning input.
             t (torch.Tensor): Timestep.
             model (torch.nn.Module): Model used for denoising.
+            predict_noise (bool): Whether the model predicts noise or directly predicts the denoised data.
 
         Returns:
             torch.Tensor: Denoised data.
         """
-        pred_noise = model(xt, context, t)
-        alpha_t = self.sqrt_alphas_cumprod[t].view(-1, 1, 1)
-        one_minus_alpha_t = self.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1)
-        x0_pred = (xt - one_minus_alpha_t * pred_noise) / alpha_t
-
+        if predict_noise:
+            pred_noise = model(xt, context, t)
+            sqrt_a_bar_t = self.scheduler.sample_sqrt_a_bar_t(t).to(self.device)
+            sqrt_1_minus_a_bar_t = self.scheduler.sample_sqrt_1_minus_a_bar_t(t).to(self.device)
+            x0_pred = (xt - sqrt_1_minus_a_bar_t * pred_noise) / sqrt_a_bar_t
+        else:
+            x0_pred = model(xt, context, t)
         return x0_pred
 
     @torch.no_grad()
-    def sample(self, model, context, xt, steps, device):
+    def sample(self, model, context, xt, steps, predict_noise=True):
         """
         Sample data using the diffusion model.
 
@@ -71,18 +148,43 @@ class DiffusionProcess:
             context (torch.Tensor): Context or conditioning input.
             xt (torch.Tensor): Initial noisy data.
             steps (int): Number of steps.
-            device (torch.device): Device to use for sampling.
+            predict_noise (bool): Whether the model predicts noise or directly predicts the denoised data.
 
         Returns:
             torch.Tensor: Sampled data.
         """
         for step in tqdm(reversed(range(steps)), desc="Sampling"):
-            t = torch.tensor([step], device=device, dtype=torch.long).expand(xt.size(0))
-            xt = self.denoise(xt, context, t, model)
+            t = torch.tensor([step], device=self.device, dtype=torch.long).expand(xt.size(0))
+            x0_pred = self.denoise(xt, context, t, model, predict_noise=predict_noise)
+
+            if step > 0:
+                xt = self.update_ddim(x0_pred, xt, t)
+            else:
+                xt = x0_pred
         return xt
 
+    def update_ddim(self, x0_pred, xt, t):
+        """
+        Perform a DDIM update step for more deterministic sampling.
+
+        Args:
+            x0_pred (torch.Tensor): Predicted clean data.
+            xt (torch.Tensor): Noisy input data.
+            t (torch.Tensor): Current timestep.
+
+        Returns:
+            torch.Tensor: Updated noisy data for the next step.
+        """
+        sqrt_a_bar_t = self.scheduler.sample_sqrt_a_bar_t(t).to(self.device)
+        sqrt_1_minus_a_bar_t = self.scheduler.sample_sqrt_1_minus_a_bar_t(t).to(self.device)
+        beta_t = self.scheduler.sample_beta_t(t).to(self.device)
+
+        direction = sqrt_1_minus_a_bar_t * (xt - sqrt_a_bar_t * x0_pred) / beta_t
+        xt_next = x0_pred + self.ddim_scale * direction
+        return xt_next
+
     @torch.no_grad()
-    def generate(self, model, context, shape, steps, device):
+    def generate(self, model, context, shape, steps, predict_noise=True):
         """
         Generate samples using the diffusion model.
 
@@ -91,11 +193,11 @@ class DiffusionProcess:
             context (torch.Tensor): Context or conditioning input.
             shape (tuple): Shape of the generated data.
             steps (int): Number of steps.
-            device (torch.device): Device to use for generation.
+            predict_noise (bool): Whether the model predicts noise or directly predicts the denoised data.
 
         Returns:
             torch.Tensor: Generated samples.
         """
-        xt = torch.randn(shape, device=device)
-        generated_samples = self.sample(model, context, xt, steps, device)
+        xt = torch.randn(shape, device=self.device)
+        generated_samples = self.sample(model, context, xt, steps, predict_noise=predict_noise)
         return generated_samples

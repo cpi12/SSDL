@@ -10,7 +10,7 @@ import random
 def handle_nan_and_scale(data, scaling_method="standard"):
     # Check for entirely NaN columns and handle them
     if np.all(np.isnan(data), axis=0).any():
-        print("Warning: Some columns are entirely NaN. Replacing with zeros.")
+        # print("Warning: Some columns are entirely NaN. Replacing with zeros.")
         data[:, np.all(np.isnan(data), axis=0)] = 0  # Replace entirely NaN columns with 0
 
     # Replace remaining NaNs with the mean of the respective columns
@@ -19,17 +19,18 @@ def handle_nan_and_scale(data, scaling_method="standard"):
     data[nan_mask] = np.take(col_mean, np.where(nan_mask)[1])
 
     # Choose scaling method
-    if scaling_method == "standard":
-        scaler = StandardScaler()
-    elif scaling_method == "minmax":
-        scaler = MinMaxScaler(feature_range=(-1, 1))
-    else:
-        raise ValueError("Invalid scaling method. Choose 'standard' or 'minmax'.")
+    # if scaling_method == "standard":
+    #     scaler = StandardScaler()
+    # elif scaling_method == "minmax":
+    #     scaler = MinMaxScaler(feature_range=(-1, 1))
+    # else:
+    #     raise ValueError("Invalid scaling method. Choose 'standard' or 'minmax'.")
 
-    # Apply scaling
-    scaled_data = scaler.fit_transform(data)
-
-    return scaled_data
+    # # Apply scaling
+    # scaled_data = scaler.fit_transform(data)
+    if np.all(np.isnan(data), axis=0).any():
+        print(data)
+    return data
 
 def time_warp(sensor_data, warp_factor=0.2):
     factor = 1 + np.random.uniform(-warp_factor, warp_factor)
@@ -183,6 +184,8 @@ class SlidingWindowDataset(Dataset):
         self.scaling = scaling
         self.sensor_augment = sensor_augment
         self.skeleton_augment = skeleton_augment
+        self.key_joint_indexes = [0, 2, 3, 5, 6, 7, 12, 13, 14, 18, 19, 20, 22, 23, 24, 26]
+        # self.key_joint_indexes = [0, 1, 2, 3, 5, 6, 7, 12, 13, 14, 18, 19, 20, 22, 23, 24, 26]
 
         # Initialize lists to hold separate data
         self.skeleton_windows, self.sensor1_windows, self.sensor2_windows, self.labels = self._create_windows()
@@ -209,18 +212,29 @@ class SlidingWindowDataset(Dataset):
                 end = start + self.window_size
                 if end > len(skeleton_df):
                     continue
-
                 skeleton_window = skeleton_df.iloc[start:end, :].values
                 sensor1_window = sensor1_df.iloc[start:end, -3:].values
                 sensor2_window = sensor2_df.iloc[start:end, -3:].values
-
+                if skeleton_window.shape[1] != 96:
+                    skeleton_window = skeleton_df.iloc[start:end, 2:].values
                 if skeleton_window.shape[1] == 97:
                     skeleton_window = skeleton_window[:, 1:]  # Remove the first column to make it 96 features
 
                 # Check for consistency in feature dimensions
                 if skeleton_window.shape[1] != 96:
-                    print(f"Skipping window with inconsistent features: Expected 96, but got {skeleton_window.shape[1]}")
+                    # print(f"Skipping window with inconsistent features: Expected 96, but got {skeleton_window.shape[1]}")
                     continue
+                
+                joint_indices = np.array(self.key_joint_indexes)
+
+                # For each joint index, select all three coordinates (x, y, z) together
+                final_indices = np.concatenate([[i*3, i*3+1, i*3+2] for i in joint_indices])
+                # Extract the relevant columns from the skeleton window
+                skeleton_window = skeleton_window[:, final_indices]
+
+                # Optionally pad with a column of zeros
+                # zeros_column = np.zeros((skeleton_window.shape[0], 1))
+                # skeleton_window = np.hstack((skeleton_window, zeros_column))
 
                 if skeleton_window.shape[0] != self.window_size or sensor1_window.shape[0] != self.window_size or sensor2_window.shape[0] != self.window_size:
                     continue
@@ -273,11 +287,11 @@ class SlidingWindowDataset(Dataset):
                         sensor1_windows.append(sensor1_window)
                         sensor2_windows.append(sensor2_window)
                         labels.append(label)
-                        noise_skeleton_window = add_noise(skeleton_window, noise_level=0.01)
-                        skeleton_windows.append(noise_skeleton_window)
-                        sensor1_windows.append(sensor1_window)
-                        sensor2_windows.append(sensor2_window)
-                        labels.append(label)
+                        # noise_skeleton_window = add_noise(skeleton_window, noise_level=0.01)
+                        # skeleton_windows.append(noise_skeleton_window)
+                        # sensor1_windows.append(sensor1_window)
+                        # sensor2_windows.append(sensor2_window)
+                        # labels.append(label)
                         if random.random() > 0.5:
                             flip_skeleton_window = flip_skeleton(skeleton_window)
                             skeleton_windows.append(flip_skeleton_window)

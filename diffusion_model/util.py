@@ -1,75 +1,251 @@
 import os
-import torch
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
 import math
-from torch.nn import functional as F
-import matplotlib.pyplot as plt
+import torch
+import imageio
+import numpy as np
 from scipy import linalg
+import matplotlib.pyplot as plt
+from torch.nn import functional as F
+from mpl_toolkits.mplot3d import Axes3D
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.model_selection import StratifiedShuffleSplit
 from .dataset import SlidingWindowDataset, read_csv_files
 
-def visualize_random_frames(positions, num_frames=10, head_offset=0.3, save_path='random_frames_plot.png'):
-    # Define joint connections based on parent-child relationships
-    joint_connections = [
-        (0, 1), (1, 2), (2, 3),  # Spine connections: PELVIS -> SPINE_NAVAL -> SPINE_CHEST -> NECK
-        (3, 4), (4, 5), (5, 6), (6, 7), (7, 8),  # Left arm: NECK -> CLAVICLE_LEFT -> SHOULDER_LEFT -> ELBOW_LEFT -> WRIST_LEFT -> HAND_LEFT
-        (7, 9),  # Left hand tip
-        (7, 10),  # Left thumb
-        (3, 11), (11, 12), (12, 13), (13, 14), (14, 15),  # Right arm: NECK -> CLAVICLE_RIGHT -> SHOULDER_RIGHT -> ELBOW_RIGHT -> WRIST_RIGHT -> HAND_RIGHT
-        (14, 16),  # Right hand tip
-        (14, 17),  # Right thumb
-        (0, 18), (18, 19), (19, 20), (20, 21),  # Left leg: PELVIS -> HIP_LEFT -> KNEE_LEFT -> ANKLE_LEFT -> FOOT_LEFT
-        (0, 22), (22, 23), (23, 24), (24, 25),  # Right leg: PELVIS -> HIP_RIGHT -> KNEE_RIGHT -> ANKLE_RIGHT -> FOOT_RIGHT
-        (3, 26), (26, 27), (26, 28), (26, 29), (26, 30), (26, 31)  # Head: NECK -> HEAD -> NOSE, EYE_LEFT, EAR_LEFT, EYE_RIGHT, EAR_RIGHT
-    ]
+def visualize_skeleton(positions, save_path='skeleton_animation.gif'):
+    connections = [
+        # Spine
+        (0, 1),  # Pelvis -> Spine Chest
+        (1, 2),  # Spine Chest -> Neck
+        (2, 15), # Neck -> Head
 
-    fig = plt.figure(figsize=(15, 15))
+        # Left Arm
+        (2, 3),  # Neck -> Left Shoulder
+        (3, 4),  # Left Shoulder -> Left Elbow
+        (4, 5),  # Left Elbow -> Left Wrist
+
+        # Right Arm
+        (2, 6),  # Neck -> Right Shoulder
+        (6, 7),  # Right Shoulder -> Right Elbow
+        (7, 8),  # Right Elbow -> Right Wrist
+
+        # Left Leg
+        (0, 9),  # Pelvis -> Left Hip
+        (9, 10), # Left Hip -> Left Knee
+        (10, 11), # Left Knee -> Left Ankle
+
+        # Right Leg
+        (0, 12),  # Pelvis -> Right Hip
+        (12, 13), # Right Hip -> Right Knee
+        (13, 14)  # Right Knee -> Right Ankle
+    ]
     
+    frames = []
     sample_idx = 0
-    random_frames = np.random.choice(np.arange(0, 90), num_frames, replace=False)  # Choose random frames from 0 to 89
-    
-    for i, frame_idx in enumerate(random_frames):
-        ax = fig.add_subplot(5, 2, i + 1, projection='3d')
-        for joint1, joint2 in joint_connections:
+
+    # Loop through all 90 frames
+    for frame_idx in range(90):
+        fig = plt.figure(figsize=(8, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Remove background and axes
+        ax.set_facecolor('white')
+        ax.grid(False)
+        ax.set_axis_off()
+        
+        for joint1, joint2 in connections:
             joint1_coords = positions[sample_idx, frame_idx, joint1*3:(joint1*3)+3]
             joint2_coords = positions[sample_idx, frame_idx, joint2*3:(joint2*3)+3]
-            
-            xs = [joint1_coords[2], joint2_coords[2]]  # Swap x and z
+
+            if len(joint1_coords) < 3 or len(joint2_coords) < 3:
+                continue
+
+            xs = [joint1_coords[0], joint2_coords[0]]
             ys = [joint1_coords[1], joint2_coords[1]]
-            zs = [joint1_coords[0], joint2_coords[0]]  # Swap x and z
-            
-            ax.plot(xs, ys, zs, marker='o')
+            zs = [joint1_coords[2], joint2_coords[2]]
 
-        # For head extension (e.g., drawing the line for head offset)
-        shoulder_midpoint = (positions[sample_idx, frame_idx, 4*3:4*3+3] + positions[sample_idx, frame_idx, 11*3:11*3+3]) / 2  # Midpoint between left and right clavicles
-        hip_midpoint = (positions[sample_idx, frame_idx, 18*3:18*3+3] + positions[sample_idx, frame_idx, 22*3:22*3+3]) / 2  # Midpoint between left and right hips
+            # Plot the bones as dark blue lines
+            ax.plot(xs, ys, zs, marker='o', color='darkblue')
 
-        xs = [shoulder_midpoint[2], hip_midpoint[2]]  # Swap x and z
-        ys = [shoulder_midpoint[1], hip_midpoint[1]]
-        zs = [shoulder_midpoint[0], hip_midpoint[0]]  # Swap x and z
-        
-        ax.plot(xs, ys, zs, marker='o', color='red')
+            # Plot the joints as red dots
+            ax.scatter(joint1_coords[0], joint1_coords[1], joint1_coords[2], color='red', s=50)  # Joint 1
+            ax.scatter(joint2_coords[0], joint2_coords[1], joint2_coords[2], color='red', s=50)  # Joint 2
 
-        head_point = shoulder_midpoint.copy()
-        head_point[1] += head_offset * np.linalg.norm(positions[sample_idx, frame_idx, 18*3:18*3+3] - positions[sample_idx, frame_idx, 22*3:22*3+3])
+        # Set equal aspect ratio
+        ax.set_box_aspect([1, 1, 1])
 
-        xs = [shoulder_midpoint[2], head_point[2]]  # Swap x and z
-        ys = [shoulder_midpoint[1], head_point[1]]
-        zs = [shoulder_midpoint[0], head_point[0]]  # Swap x and z
-        
-        ax.plot(xs, ys, zs, marker='o', color='blue')
+        # Set a rotated view angle for better depth perception
+        ax.view_init(elev=-90, azim=-90)  # Adjust azimuth and elevation for better 3D perception
 
-        ax.set_xlabel('Z')  # Swap labels
-        ax.set_ylabel('Y')
-        ax.set_zlabel('X')  # Swap labels
-        ax.set_title(f'Frame {frame_idx}')
+        # Capture the frame
+        plt.tight_layout()
+        fig.canvas.draw()
 
-    plt.tight_layout()
-    plt.savefig(save_path)
-    print(f'Plot saved as {save_path}')
+        # Convert to a numpy array and add to frames list
+        image = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
+        image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        frames.append(image)
+
+        # Close the figure to save memory
+        plt.close(fig)
+
+    # Save the frames as a GIF with a duration of 0.2 seconds per frame (5 fps)
+    imageio.mimsave(save_path, frames, duration=0.2)  # Adjust duration for frame speed
+    print(f'GIF saved as {save_path}')
+
+# def visualize_skeleton(positions, frame_range=(30, 50), save_path='skeleton_animation.gif'):
+
+#     connections = [
+#         # Spine
+#         (0, 1),  # Pelvis -> Spine Chest
+#         (1, 2),  # Spine Chest -> Neck
+#         (2, 15), # Neck -> Head
+
+#         # Left Arm
+#         (2, 3),  # Neck -> Left Shoulder
+#         (3, 4),  # Left Shoulder -> Left Elbow
+#         (4, 5),  # Left Elbow -> Left Wrist
+
+#         # Right Arm
+#         (2, 6),  # Neck -> Right Shoulder
+#         (6, 7),  # Right Shoulder -> Right Elbow
+#         (7, 8),  # Right Elbow -> Right Wrist
+
+#         # Left Leg
+#         (0, 9),  # Pelvis -> Left Hip
+#         (9, 10), # Left Hip -> Left Knee
+#         (10, 11), # Left Knee -> Left Ankle
+
+#         # Right Leg
+#         (0, 12),  # Pelvis -> Right Hip
+#         (12, 13), # Right Hip -> Right Knee
+#         (13, 14)  # Right Knee -> Right Ankle
+#     ]
+    
+#     # Define colors for each body part
+#     color_map = {
+#         "spine": "magenta",
+#         "left_arm": "blue",
+#         "right_arm": "red",
+#         "left_leg": "purple",
+#         "right_leg": "green",
+#         "head": "orange"
+#     }
+
+#     frames = []
+#     sample_idx = 0
+
+#     for frame_idx in range(frame_range[0], frame_range[1] + 1):
+#         fig = plt.figure(figsize=(8, 8))
+#         ax = fig.add_subplot(111, projection='3d')
+
+#         for joint1, joint2 in connections:
+#             # Correct slicing to exclude the padded column
+#             joint1_coords = positions[sample_idx, frame_idx, joint1*3:(joint1*3)+3]
+#             joint2_coords = positions[sample_idx, frame_idx, joint2*3:(joint2*3)+3]
+
+#             # Skip if the extracted coordinates are invalid or empty
+#             if len(joint1_coords) < 3 or len(joint2_coords) < 3:
+#                 continue
+
+#             xs = [joint1_coords[0], joint2_coords[0]]
+#             ys = [joint1_coords[1], joint2_coords[1]]
+#             zs = [joint1_coords[2], joint2_coords[2]]
+
+#             # Determine the color based on the joint index
+#             if (joint1, joint2) in [(0, 1), (1, 2), (2, 3)]:
+#                 color = color_map["spine"]
+#             elif joint1 in [4, 5, 6]:  # Left arm
+#                 color = color_map["left_arm"]
+#             elif joint1 in [7, 8, 9]:  # Right arm
+#                 color = color_map["right_arm"]
+#             elif joint1 in [10, 11, 12]:  # Left leg
+#                 color = color_map["left_leg"]
+#             elif joint1 in [13, 14, 15]:  # Right leg
+#                 color = color_map["right_leg"]
+#             else:  # Head
+#                 color = color_map["head"]
+
+#             ax.plot(xs, ys, zs, marker='o', color=color)
+
+#         # Set labels and title
+#         ax.set_xlabel('X')
+#         ax.set_ylabel('Y')
+#         ax.set_zlabel('Z')
+#         ax.set_title(f'Frame {frame_idx}')
+#         ax.set_box_aspect([1, 1, 1])  # Equal aspect ratio
+
+#         # Set a rotated view angle for better depth perception
+#         ax.view_init(elev=-90, azim=-90)  # Adjust azimuth and elevation for better 3D perception
+
+#         # Capture the frame
+#         plt.tight_layout()
+#         fig.canvas.draw()
+
+#         # Convert to a numpy array and add to frames list
+#         image = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
+#         image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+#         frames.append(image)
+
+#         # Close the figure to save memory
+#         plt.close(fig)
+
+#     # Save the frames as a GIF
+#     imageio.mimsave(save_path, frames, duration=10)  # Adjust duration for frame speed
+#     print(f'GIF saved as {save_path}')
+
+# def visualize_skeleton_comparison(x0, x0_pred, frame_range=(45, 50), save_path='skeleton_comparison_animation.gif'):
+#     # Define joint connections
+#     joint_connections = [
+#         (0, 1), (1, 2), (2, 3),  # Left arm: Neck -> Left Shoulder -> Left Elbow -> Left Wrist
+#         (0, 4), (4, 5), (5, 6),  # Right arm: Neck -> Right Shoulder -> Right Elbow -> Right Wrist
+#         (7, 8), (8, 9),  # Left leg: Hip Left -> Knee Left -> Ankle Left
+#         (10, 11), (11, 12)  # Right leg: Hip Right -> Knee Right -> Ankle Right
+#     ]
+
+#     frames = []
+#     sample_idx = 0
+
+#     for frame_idx in range(frame_range[0], frame_range[1] + 1):
+#         fig, axs = plt.subplots(1, 2, figsize=(16, 8), subplot_kw={'projection': '3d'})
+
+#         for ax, positions, title in zip(axs, [x0, x0_pred], ['Original x0', 'Predicted x0_pred']):
+#             for joint1, joint2 in joint_connections:
+#                 # Get joint coordinates
+#                 joint1_coords = positions[sample_idx, frame_idx, joint1*3:(joint1*3)+3]
+#                 joint2_coords = positions[sample_idx, frame_idx, joint2*3:(joint2*3)+3]
+
+#                 # Plot the bone
+#                 xs = [joint1_coords[0], joint2_coords[0]]  # X coordinates
+#                 ys = [joint1_coords[1], joint2_coords[1]]  # Y coordinates
+#                 zs = [joint1_coords[2], joint2_coords[2]]  # Z coordinates
+
+#                 ax.plot(xs, ys, zs, marker='o', color='blue' if joint1 < 7 else 'green')
+
+#             # Set labels and title
+#             ax.set_xlabel('X')
+#             ax.set_ylabel('Y')
+#             ax.set_zlabel('Z')
+#             ax.set_title(title)
+#             ax.set_box_aspect([1, 1, 1])  # Equal aspect ratio
+
+#             # Set a rotated view angle for better depth perception
+#             ax.view_init(elev=-90, azim=-90)  # Adjust azimuth and elevation for better 3D perception
+
+#         # Capture the frame
+#         plt.tight_layout()
+#         fig.canvas.draw()
+
+#         # Convert to a numpy array and add to frames list
+#         image = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
+#         image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+#         frames.append(image)
+
+#         # Close the figure to save memory
+#         plt.close(fig)
+
+#     # Save the frames as a GIF
+#     imageio.mimsave(save_path, frames, duration=0.5)  # Adjust duration for frame speed
+#     print(f'GIF saved as {save_path}')
 
 def custom_sensor_loss(predictions, labels):
     """
@@ -91,10 +267,12 @@ def custom_sensor_loss(predictions, labels):
 
     return loss
 
-
-def compute_loss(args, model, x0, context, t, mask=None, noise=None, device="cpu", diffusion_process=None, angular_loss=False, lip_reg=False, epoch=None):
+def compute_loss(
+    args, model, x0, context, t, mask=None, noise=None, device="cpu",
+    diffusion_process=None, angular_loss=False, lip_reg=False, epoch=None
+):
     """
-    Custom loss function for the diffusion model with noise normalization.
+    Custom loss function for the diffusion model using a mix of DDIM and DDPM.
 
     Args:
         model (nn.Module): The diffusion model.
@@ -116,45 +294,91 @@ def compute_loss(args, model, x0, context, t, mask=None, noise=None, device="cpu
         noise = torch.randn_like(x0)
 
     # Ensure all tensors are on the correct device
+    x0 = (x0 - x0.mean()) / x0.std()
     x0 = x0.to(device)
     context = context.to(device)
     t = t.to(device)
     noise = noise.to(device)
 
-    # Add noise based on the diffusion process
-    x_t_subset, _ = diffusion_process.add_noise(x0, t)
-    
-    # Generate the predicted noise for only the subset of joints
-    predicted_noise = model(x_t_subset, context, t).to(device)
+    # Add noise to x0 to get xt
+    xt, _ = diffusion_process.add_noise(x0, t)
+    # Toggle between predicting noise (DDPM) and predicting clean data (DDIM) using ddim_scale
+    if diffusion_process.ddim_scale == 1.0:
+        # Predict noise (DDPM approach)
+        predicted_noise = model(xt, context, t).to(device)
+        mse_loss = F.mse_loss(predicted_noise, noise)
+    else:
+        # Predict clean data (DDIM approach)
+        x0_pred = model(xt, context, t).to(device)
+        x0_pred_originail = x0_pred
+        mse_loss = F.mse_loss(x0_pred, x0)
 
-    # Normalize both the true noise and predicted noise to the range [-1, 1]
-    def normalize(tensor):
-        return 2 * (tensor - tensor.min()) / (tensor.max() - tensor.min()) - 1
+        if epoch is not None:
+        # For the 0th epoch, save both the original and predicted skeleton
+            if epoch == 0:
+                visualize_skeleton(
+                    x0.cpu().detach().numpy(),
+                    save_path=f'./gif_tl/original_skeleton_animation_{epoch}.gif'
+                )
+                visualize_skeleton(
+                    x0_pred.cpu().detach().numpy(),
+                    save_path=f'./gif_tl/skeleton_animation_epoch_{epoch}.gif'
+                )
+            # For the first 400 epochs, save visualizations every 30 epochs
+            elif epoch <= 2500 and epoch % 250 == 0:
+                visualize_skeleton(
+                    x0.cpu().detach().numpy(),
+                    save_path=f'./gif_tl/original_skeleton_animation_{epoch}.gif'
+                )
+                visualize_skeleton(
+                    x0_pred.cpu().detach().numpy(),
+                    save_path=f'./gif_tl/skeleton_animation_epoch_{epoch}.gif'
+                )
+            # For the remaining epochs, save visualizations every 500 epochs
+            elif epoch == 3000:
+                visualize_skeleton(
+                    x0.cpu().detach().numpy(),
+                    save_path=f'./gif_tl/original_skeleton_animation_{epoch}.gif'
+                )
+                visualize_skeleton(
+                    x0_pred.cpu().detach().numpy(),
+                    save_path=f'./gif_tl/skeleton_animation_epoch_{epoch}.gif'
+                )
 
-    noise = normalize(noise)
-    # predicted_noise = normalize(predicted_noise)
-
-    # Compute MSE loss for the subset of joints
-    mse_loss = F.mse_loss(noise, predicted_noise)
     total_loss = mse_loss
 
     # Optional angular loss
-    if args.angular_loss:
-        joint_angles = compute_joint_angles(noise)
-        predicted_joint_angles = compute_joint_angles(predicted_noise)
-        angular_loss_value = F.mse_loss(predicted_joint_angles, joint_angles)
+    if angular_loss:
+        if diffusion_process.ddim_scale == 1.0:
+            # Angular loss based on predicted noise
+            predicted_joint_angles = compute_joint_angles(predicted_noise)
+        else:
+            # Angular loss based on predicted clean data
+            predicted_joint_angles = compute_joint_angles(x0_pred)
+            joint_angles = compute_joint_angles(x0)
+            angular_loss_value = F.mse_loss(predicted_joint_angles, joint_angles)
+            # difference = joint_angles - predicted_joint_angles
+
+            # # Compute the Frobenius norm squared (||.||_F^2)
+            # frobenius_norm_squared = torch.norm(difference, p='fro') ** 1/2
+
+            # # Compute the final loss with the 1/2 scaling factor
+            # angular_loss_value = 0.5 * frobenius_norm_squared
         total_loss += 0.5 * angular_loss_value
 
     # Optional Lipschitz regularization (LipReg)
-    if args.lip_reg:
+    if lip_reg:
         noisy_context = add_random_noise(context, noise_std=0.01, noise_fraction=0.2)
-        x_t_noisy, _ = diffusion_process.add_noise(x0, t, noisy_context)
-        predicted_noise_lr = model(x_t_noisy, noisy_context, t).to(device)
-        lip_reg_loss = F.mse_loss(noise, predicted_noise_lr)
+        xt_noisy, _ = diffusion_process.add_noise(x0, t, noisy_context)
+        if diffusion_process.ddim_scale == 1.0:
+            predicted_noise_lr = model(xt_noisy, noisy_context, t).to(device)
+            lip_reg_loss = F.mse_loss(predicted_noise_lr, noise)
+        else:
+            x0_pred_lr = model(xt_noisy, noisy_context, t).to(device)
+            lip_reg_loss = F.mse_loss(x0_pred_lr, x0_pred_originail)
         total_loss += 0.5 * lip_reg_loss
 
     return total_loss
-
 
 
 def add_random_noise(context, noise_std=0.01, noise_fraction=0.2):
@@ -313,18 +537,42 @@ def extract_joint_subset(positions):
     return positions[:, :, selected_columns]
 
 def compute_joint_angles(positions):
+    
     # Indices of the joints of interest for computing angles
+
     joint_pairs = torch.tensor([
-        [5, 6, 7],  # Left shoulder, elbow, wrist
-        [12, 13, 14],  # Right shoulder, elbow, wrist
-        [18, 19, 20],  # Left hip, knee, ankle
-        [22, 23, 24]  # Right hip, knee, ankle
+        [3, 4, 5],  # Left shoulder, elbow, wrist
+        [6, 7, 8],  # Right shoulder, elbow, wrist
+        [9, 10, 11],  # Left hip, knee, ankle
+        [12, 13, 14]  # Right hip, knee, ankle
     ], device=positions.device)
+    
+    # joint_pairs = torch.tensor([
+    #     [4, 5, 6],   # Left shoulder, elbow, wrist
+    #     [7, 8, 9],   # Right shoulder, elbow, wrist
+    #     [10, 11, 12],  # Left hip, knee, ankle
+    #     [13, 14, 15]  # Right hip, knee, ankle
+    # ], device=positions.device)
+
+
+    # joint_pairs = torch.tensor([
+    #     [0, 1, 2],  # Left shoulder, elbow, wrist
+    #     [3, 4, 5],  # Right shoulder, elbow, wrist
+    #     [6, 7, 8],  # Left hip, knee, ankle
+    #     [9, 10, 11]  # Right hip, knee, ankle
+    # ], device=positions.device)
 
     batch_size, num_frames, _ = positions.shape
 
-    # Reshape positions to (batch_size, num_frames, 32, 3)
-    positions = positions.view(batch_size, num_frames, 32, 3)
+    # Account for potential padding: remove extra columns
+    # Calculate how many joints we have based on columns
+    num_joints = (_ // 3)
+
+    # If extra padding columns exist, slice them off
+    positions = positions[:, :, :num_joints * 3]
+
+    # Reshape positions to (batch_size, num_frames, num_joints, 3)
+    positions = positions.view(batch_size, num_frames, num_joints, 3)
 
     # Process in smaller chunks if the tensor is large
     chunk_size = 100  # Adjust based on memory capacity
@@ -332,10 +580,10 @@ def compute_joint_angles(positions):
 
     for i in range(0, num_frames, chunk_size):
         positions_chunk = positions[:, i:i + chunk_size]
-        
+
         # Compute vectors for the joint pairs
-        vectors1 = positions_chunk[:, :, joint_pairs[:, 1] - joint_pairs.min()] - positions_chunk[:, :, joint_pairs[:, 0] - joint_pairs.min()]
-        vectors2 = positions_chunk[:, :, joint_pairs[:, 1] - joint_pairs.min()] - positions_chunk[:, :, joint_pairs[:, 2] - joint_pairs.min()]
+        vectors1 = positions_chunk[:, :, joint_pairs[:, 1]] - positions_chunk[:, :, joint_pairs[:, 0]]
+        vectors2 = positions_chunk[:, :, joint_pairs[:, 1]] - positions_chunk[:, :, joint_pairs[:, 2]]
 
         # Compute dot product
         dot_product = torch.sum(vectors1 * vectors2, dim=-1)
@@ -365,7 +613,6 @@ def compute_joint_angles(positions):
 
     # Concatenate all angle chunks
     return torch.cat(angles, dim=1)
-
 
 def get_alpha(current_epoch, max_alpha=1.0, warmup_epochs=10):
     """
