@@ -95,8 +95,10 @@ def compute_loss(
     if angular_loss:
         predicted_joint_angles = compute_joint_angles(x0_pred)
         joint_angles = compute_joint_angles(x0)
-        angular_loss_value = F.mse_loss(predicted_joint_angles, joint_angles)
-        total_loss += 0.5 * angular_loss_value
+        difference = joint_angles - predicted_joint_angles
+        # # Compute the Frobenius norm squared (||.||_F^2)
+        angular_loss_value = torch.norm(difference, p='fro')
+        total_loss += 0.05 * angular_loss_value
 
     # Optional Lipschitz regularization (LipReg)
     if lip_reg:

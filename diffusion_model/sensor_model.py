@@ -30,7 +30,7 @@ class TemporalAttentionBlock(nn.Module):
 
     def forward(self, x):
         x = x + self.attention(x)
-        x = x.permute(0, 2, 1)  # Permute to (batch_size, sequence_length, channels)
+        x = x.permute(0, 2, 1)
         x = self.norm(x)  # Apply LayerNorm across the channels dimension
         x = x.permute(0, 2, 1)  # Permute back to (batch_size, channels, sequence_length)
         return x
@@ -57,32 +57,30 @@ class SensorConvLSTMClassifier(nn.Module):
         self.residual_projection = nn.Linear(90, hidden_size * 2)
 
     def forward(self, x):
-        residual = x  # Save input as residual for skip connection
+        residual = x
 
-        x = x.permute(0, 2, 1)  # Convert to (batch_size, input_size, sequence_length) for Conv1D
+        x = x.permute(0, 2, 1)
         x = self.conv1d(x)
-        x = self.bn(x)  # Apply Batch Normalization
+        x = self.bn(x)
         x = self.relu(x)
         x = self.dropout(x)
 
         # Apply temporal attention before LSTM
         x = self.temporal_attention(x)
 
-        x = x.permute(0, 2, 1)  # Convert back to (batch_size, sequence_length, conv_channels) for LSTM
+        x = x.permute(0, 2, 1)
 
         h0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size).to(x.device)
         c0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size).to(x.device)
 
         out, _ = self.lstm(x, (h0, c0))
-        out = self.fc(out[:, -1, :])  # Use the last LSTM output for classification
-        # print("out", out.shape)
+        out = self.fc(out[:, -1, :])
 
         # Project the residual to match the LSTM output size
         residual = residual[:, :, -1]  # Get the last timestep from the input
-        # print("residual", residual.shape)
         residual = self.residual_projection(residual)  # Project to match hidden_size * 2
 
-        out += residual  # Add the projected residual as a skip connection
+        out += residual
         return out
 
 

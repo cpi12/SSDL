@@ -9,7 +9,7 @@ class SkeletonLSTMModel(nn.Module):
         self.fc = nn.Linear(hidden_size, num_classes)
 
     def forward(self, skeleton_data):
-        lstm_out, _ = self.lstm(skeleton_data)  # lstm_out: [batch_size, sequence_length, hidden_size]
-        lstm_out = lstm_out[:, -1, :]  # [batch_size, hidden_size]
-        output = self.fc(lstm_out)  # [batch_size, num_classes]
+        lstm_out, _ = self.lstm(skeleton_data)
+        lstm_out = lstm_out[:, -1, :]
+        output = self.fc(lstm_out)
         return output
