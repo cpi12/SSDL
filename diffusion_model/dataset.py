@@ -7,6 +7,15 @@ import torch
 from torch.utils.data import Dataset
 import random
 
+def read_csv_files(folder):
+    files = [f for f in os.listdir(folder) if f.endswith('.csv')]
+    data = {}
+    for file in files:
+        file_path = os.path.join(folder, file)
+        data[file] = pd.read_csv(file_path)
+    return data
+
+
 def handle_nan_and_scale(data, scaling_method="standard"):
     # Check for entirely NaN columns and handle them
     if np.all(np.isnan(data), axis=0).any():
@@ -18,153 +27,29 @@ def handle_nan_and_scale(data, scaling_method="standard"):
     nan_mask = np.isnan(data)
     data[nan_mask] = np.take(col_mean, np.where(nan_mask)[1])
 
-    # Choose scaling method
-    # if scaling_method == "standard":
-    #     scaler = StandardScaler()
-    # elif scaling_method == "minmax":
-    #     scaler = MinMaxScaler(feature_range=(-1, 1))
-    # else:
-    #     raise ValueError("Invalid scaling method. Choose 'standard' or 'minmax'.")
-
-    # # Apply scaling
-    # scaled_data = scaler.fit_transform(data)
-    if np.all(np.isnan(data), axis=0).any():
-        print(data)
+    # Scaling is removed in this example but you can add it back if necessary
     return data
 
-def time_warp(sensor_data, warp_factor=0.2):
-    factor = 1 + np.random.uniform(-warp_factor, warp_factor)
-    original_length = sensor_data.shape[0]
-    new_length = int(original_length * factor)
-    return np.interp(
-        np.linspace(0, original_length, new_length),
-        np.arange(original_length),
-        sensor_data
-    )
-
-def random_shift(sensor_data, shift_range=5):
-    shift = np.random.randint(-shift_range, shift_range)
-    return np.roll(sensor_data, shift, axis=0)
-
-def invert_sensor_axis(sensor_data, axis='x'):
-    if axis == 'x':
-        sensor_data[:, 0] *= -1
-    elif axis == 'y':
-        sensor_data[:, 1] *= -1
-    elif axis == 'z':
-        sensor_data[:, 2] *= -1
-    return sensor_data
-
-def rotate_sensor_data(sensor_data, axis='y', angle=15):
-    angle_rad = np.deg2rad(angle)
-    cos_angle = np.cos(angle_rad)
-    sin_angle = np.sin(angle_rad)
+def adjust_keypoints(skeleton_window, key_joint_indexes, joint_order):
+    """
+    Adjust the skeleton keypoints to follow the human structure order (head -> neck -> arms -> spine -> legs).
     
-    if axis == 'x':
-        rotation_matrix = np.array([
-            [1, 0, 0],
-            [0, cos_angle, -sin_angle],
-            [0, sin_angle, cos_angle]
-        ])
-    elif axis == 'y':
-        rotation_matrix = np.array([
-            [cos_angle, 0, sin_angle],
-            [0, 1, 0],
-            [-sin_angle, 0, cos_angle]
-        ])
-    elif axis == 'z':
-        rotation_matrix = np.array([
-            [cos_angle, -sin_angle, 0],
-            [sin_angle, cos_angle, 0],
-            [0, 0, 1]
-        ])
-    else:
-        raise ValueError("Invalid axis, choose from 'x', 'y', or 'z'")
-
-    rotated_data = sensor_data.dot(rotation_matrix.T)
-    return rotated_data
-
-
-def read_csv_files(folder):
-    files = [f for f in os.listdir(folder) if f.endswith('.csv')]
-    data = {}
-    for file in files:
-        file_path = os.path.join(folder, file)
-        data[file] = pd.read_csv(file_path)
-    return data
-
-def calculate_global_stats(data_dict):
-    all_data = []
-    for df in data_dict.values():
-        all_data.append(df.values[:, 1:])  # Assuming first column is time/frame, and others are features
-
-    all_data = np.concatenate(all_data, axis=0)
-    global_mean = np.mean(all_data, axis=0)
-    global_std = np.std(all_data, axis=0)
-
-    return global_mean, global_std
-
-def rotate_skeleton(skeleton, axis='y', angle=15):
-    angle_rad = np.deg2rad(angle)
-    cos_angle = np.cos(angle_rad)
-    sin_angle = np.sin(angle_rad)
+    Args:
+        skeleton_window (numpy.ndarray): Skeleton data in shape (window_size, num_joints * 3).
+        key_joint_indexes (list): List of key joints to use for ordering.
+        joint_order (list): The desired order of key joints.
     
-    if axis == 'x':
-        rotation_matrix = np.array([
-            [1, 0, 0],
-            [0, cos_angle, -sin_angle],
-            [0, sin_angle, cos_angle]
-        ])
-    elif axis == 'y':
-        rotation_matrix = np.array([
-            [cos_angle, 0, sin_angle],
-            [0, 1, 0],
-            [-sin_angle, 0, cos_angle]
-        ])
-    elif axis == 'z':
-        rotation_matrix = np.array([
-            [cos_angle, -sin_angle, 0],
-            [sin_angle, cos_angle, 0],
-            [0, 0, 1]
-        ])
-    else:
-        raise ValueError("Invalid axis, choose from 'x', 'y', or 'z'")
-
-    skeleton_reshaped = skeleton.reshape(-1, 3)
-    rotated_skeleton = skeleton_reshaped.dot(rotation_matrix.T)
-    rotated_skeleton = rotated_skeleton.reshape(skeleton.shape)
+    Returns:
+        numpy.ndarray: Adjusted skeleton data in shape (window_size, ordered_num_joints * 3).
+    """
+    adjusted_skeleton = []
     
-    return rotated_skeleton
-
-def scale_skeleton(skeleton, scale_factors=(1.0, 1.0, 1.0)):
-    scale_matrix = np.diag(scale_factors)
-    skeleton_reshaped = skeleton.reshape(-1, 3)
-    scaled_skeleton = skeleton_reshaped.dot(scale_matrix.T)
-    return scaled_skeleton.reshape(skeleton.shape)
-
-def translate_skeleton(skeleton, translation=(0.1, 0.1, 0.1)):
-    translation = np.array(translation)
-    skeleton_reshaped = skeleton.reshape(-1, 3)
-    translated_skeleton = skeleton_reshaped + translation
-    return translated_skeleton.reshape(skeleton.shape)
-
-def add_sensor_noise(sensor_data, noise_level=0.01):
-    noise = np.random.normal(0, noise_level, sensor_data.shape)
-    return sensor_data + noise
-
-def add_noise(skeleton, noise_level=0.01):
-    noise = np.random.normal(0, noise_level, skeleton.shape)
-    return skeleton + noise
-
-def flip_skeleton(skeleton):
-    flip_matrix = np.array([
-        [-1, 0, 0],
-        [0, 1, 0],
-        [0, 0, 1]
-    ])
-    skeleton_reshaped = skeleton.reshape(-1, 3)
-    flipped_skeleton = skeleton_reshaped.dot(flip_matrix.T)
-    return flipped_skeleton.reshape(skeleton.shape)
+    for joint_index in joint_order:
+        if joint_index in key_joint_indexes:
+            start_idx = key_joint_indexes.index(joint_index) * 3  # Find the starting index for (x, y, z) of this joint
+            adjusted_skeleton.append(skeleton_window[:, start_idx:start_idx + 3])  # Append (x, y, z) of the joint
+    
+    return np.hstack(adjusted_skeleton)
 
 def random_joint_dropout(skeleton, dropout_prob=0.1):
     mask = np.random.binomial(1, 1 - dropout_prob, skeleton.shape)
@@ -173,19 +58,21 @@ def random_joint_dropout(skeleton, dropout_prob=0.1):
 class SlidingWindowDataset(Dataset):
     def __init__(self, skeleton_data, sensor1_data, sensor2_data, common_files, window_size, overlap, label_encoder, 
                  augment=True, sensor_augment=False, skeleton_augment=True, scaling="minmax"):
-        self.skeleton_data = skeleton_data
-        self.sensor1_data = sensor1_data
-        self.sensor2_data = sensor2_data
-        self.common_files = list(common_files)
-        self.window_size = window_size
         self.overlap = overlap
-        self.label_encoder = label_encoder
         self.augment = augment
         self.scaling = scaling
+        self.window_size = window_size
+        self.sensor1_data = sensor1_data
+        self.sensor2_data = sensor2_data
+        self.skeleton_data = skeleton_data
+        self.label_encoder = label_encoder
         self.sensor_augment = sensor_augment
+        self.common_files = list(common_files)
         self.skeleton_augment = skeleton_augment
         self.key_joint_indexes = [0, 2, 3, 5, 6, 7, 12, 13, 14, 18, 19, 20, 22, 23, 24, 26]
-        # self.key_joint_indexes = [0, 1, 2, 3, 5, 6, 7, 12, 13, 14, 18, 19, 20, 22, 23, 24, 26]
+
+        # Joint order based on head -> neck -> arms -> spine -> legs
+        self.joint_order = [26, 3, 5, 6, 7, 12, 13, 14, 2, 0, 18, 19, 20, 22, 23, 24]
 
         # Initialize lists to hold separate data
         self.skeleton_windows, self.sensor1_windows, self.sensor2_windows, self.labels = self._create_windows()
@@ -194,7 +81,6 @@ class SlidingWindowDataset(Dataset):
         skeleton_windows = []
         sensor1_windows = []
         sensor2_windows = []
-        skeleton_masks = []
         labels = []
         step = self.window_size - self.overlap
 
@@ -215,121 +101,32 @@ class SlidingWindowDataset(Dataset):
                 skeleton_window = skeleton_df.iloc[start:end, :].values
                 sensor1_window = sensor1_df.iloc[start:end, -3:].values
                 sensor2_window = sensor2_df.iloc[start:end, -3:].values
+
                 if skeleton_window.shape[1] != 96:
                     skeleton_window = skeleton_df.iloc[start:end, 2:].values
+
                 if skeleton_window.shape[1] == 97:
                     skeleton_window = skeleton_window[:, 1:]  # Remove the first column to make it 96 features
 
                 # Check for consistency in feature dimensions
                 if skeleton_window.shape[1] != 96:
-                    # print(f"Skipping window with inconsistent features: Expected 96, but got {skeleton_window.shape[1]}")
                     continue
                 
                 joint_indices = np.array(self.key_joint_indexes)
-
-                # For each joint index, select all three coordinates (x, y, z) together
                 final_indices = np.concatenate([[i*3, i*3+1, i*3+2] for i in joint_indices])
-                # Extract the relevant columns from the skeleton window
                 skeleton_window = skeleton_window[:, final_indices]
-
-                # Optionally pad with a column of zeros
-                # zeros_column = np.zeros((skeleton_window.shape[0], 1))
-                # skeleton_window = np.hstack((skeleton_window, zeros_column))
 
                 if skeleton_window.shape[0] != self.window_size or sensor1_window.shape[0] != self.window_size or sensor2_window.shape[0] != self.window_size:
                     continue
 
-                # Create a mask for NaN values in the skeleton data only
-                skeleton_window = handle_nan_and_scale(skeleton_window, scaling_method="minmax")
-                sensor1_window = handle_nan_and_scale(sensor1_window, scaling_method="minmax")
-                sensor2_window = handle_nan_and_scale(sensor2_window, scaling_method="minmax")
+                # Apply keypoint adjustment (reorder joints as head -> neck -> arms -> spine -> legs)
+                skeleton_window = adjust_keypoints(skeleton_window, self.key_joint_indexes, self.joint_order)
 
-                # Apply augmentations if enabled
-                if self.augment:
-                    if self.skeleton_augment:
-                        rotate_skeleton_window = rotate_skeleton(skeleton_window, axis='y', angle=random.uniform(-15, 15))
-                        skeleton_windows.append(rotate_skeleton_window)
-                        sensor1_windows.append(sensor1_window)
-                        sensor2_windows.append(sensor2_window)
-                        labels.append(label)
-                        rotate_skeleton_window = rotate_skeleton(skeleton_window, axis='x', angle=random.uniform(-15, 15))
-                        skeleton_windows.append(rotate_skeleton_window)
-                        sensor1_windows.append(sensor1_window)
-                        sensor2_windows.append(sensor2_window)
-                        labels.append(label)
-                        rotate_skeleton_window = rotate_skeleton(skeleton_window, axis='z', angle=random.uniform(-15, 15))
-                        skeleton_windows.append(rotate_skeleton_window)
-                        sensor1_windows.append(sensor1_window)
-                        sensor2_windows.append(sensor2_window)
-                        labels.append(label)
-                        rotate_skeleton_window = rotate_skeleton(skeleton_window, axis='x', angle=random.uniform(-15, 15))
-                        rotate_skeleton_window = rotate_skeleton(rotate_skeleton_window, axis='y', angle=random.uniform(-15, 15))
-                        skeleton_windows.append(rotate_skeleton_window)
-                        sensor1_windows.append(sensor1_window)
-                        sensor2_windows.append(sensor2_window)
-                        labels.append(label)
-                        rotate_skeleton_window = rotate_skeleton(skeleton_window, axis='x', angle=random.uniform(-15, 15))
-                        rotate_skeleton_window = rotate_skeleton(rotate_skeleton_window, axis='z', angle=random.uniform(-15, 15))
-                        skeleton_windows.append(rotate_skeleton_window)
-                        sensor1_windows.append(sensor1_window)
-                        sensor2_windows.append(sensor2_window)
-                        labels.append(label)
-                        rotate_skeleton_window = rotate_skeleton(skeleton_window, axis='y', angle=random.uniform(-15, 15))
-                        rotate_skeleton_window = rotate_skeleton(rotate_skeleton_window, axis='z', angle=random.uniform(-15, 15))
-                        skeleton_windows.append(rotate_skeleton_window)
-                        sensor1_windows.append(sensor1_window)
-                        sensor2_windows.append(sensor2_window)
-                        labels.append(label)
-                        rotate_skeleton_window = rotate_skeleton(skeleton_window, axis='x', angle=random.uniform(-15, 15))
-                        rotate_skeleton_window = rotate_skeleton(rotate_skeleton_window, axis='y', angle=random.uniform(-15, 15))
-                        rotate_skeleton_window = rotate_skeleton(rotate_skeleton_window, axis='z', angle=random.uniform(-15, 15))
-                        skeleton_windows.append(rotate_skeleton_window)
-                        sensor1_windows.append(sensor1_window)
-                        sensor2_windows.append(sensor2_window)
-                        labels.append(label)
-                        # noise_skeleton_window = add_noise(skeleton_window, noise_level=0.01)
-                        # skeleton_windows.append(noise_skeleton_window)
-                        # sensor1_windows.append(sensor1_window)
-                        # sensor2_windows.append(sensor2_window)
-                        # labels.append(label)
-                        if random.random() > 0.5:
-                            flip_skeleton_window = flip_skeleton(skeleton_window)
-                            skeleton_windows.append(flip_skeleton_window)
-                            sensor1_windows.append(sensor1_window)
-                            sensor2_windows.append(sensor2_window)
-                            labels.append(label)
-                    if self.sensor_augment:
-                        axes = ['x', 'y', 'z']
-                        angles = [random.uniform(-15, 15) for _ in range(3)]  # Random angle for each axis
+                skeleton_window = handle_nan_and_scale(skeleton_window, scaling_method=self.scaling)
+                sensor1_window = handle_nan_and_scale(sensor1_window, scaling_method=self.scaling)
+                sensor2_window = handle_nan_and_scale(sensor2_window, scaling_method=self.scaling)
 
-                        for axis1 in axes:
-                            for axis2 in axes:
-                                # Rotate sensor1 along axis1 and sensor2 along axis2
-                                rotate_sensor1_window = rotate_skeleton(sensor1_window, axis=axis1, angle=angles[axes.index(axis1)])
-                                rotate_sensor2_window = rotate_skeleton(sensor2_window, axis=axis2, angle=angles[axes.index(axis2)])
-
-                                skeleton_windows.append(skeleton_window)
-                                sensor1_windows.append(rotate_sensor1_window)
-                                sensor2_windows.append(rotate_sensor2_window)
-                                labels.append(label)
-                        
-                        augmented_sensor1 = add_sensor_noise(sensor1_window, noise_level=0.01)
-                        skeleton_windows.append(skeleton_window)
-                        sensor1_windows.append(augmented_sensor1)
-                        sensor2_windows.append(sensor2_window)
-                        labels.append(label)
-
-                        augmented_sensor2 = add_sensor_noise(sensor2_window, noise_level=0.01)
-                        skeleton_windows.append(skeleton_window)
-                        sensor1_windows.append(sensor1_window)
-                        sensor2_windows.append(augmented_sensor2)
-                        labels.append(label)
-
-                # Create a mask for NaN values in the skeleton data only
-                skeleton_window = handle_nan_and_scale(skeleton_window, scaling_method="minmax")
-                sensor1_window = handle_nan_and_scale(sensor1_window, scaling_method="minmax")
-                sensor2_window = handle_nan_and_scale(sensor2_window, scaling_method="minmax")
-                
+                # Append original windows after augmentation
                 skeleton_windows.append(skeleton_window)
                 sensor1_windows.append(sensor1_window)
                 sensor2_windows.append(sensor2_window)

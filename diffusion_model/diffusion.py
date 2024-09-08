@@ -83,18 +83,16 @@ class Scheduler:
         return self.beta_tilde_t[t - 1]
 
 class DiffusionProcess:
-    def __init__(self, scheduler, device='cpu', ddim_scale=0.5):
+    def __init__(self, scheduler, device='cpu'):
         """
         Initialize the DiffusionProcess class with a scheduler.
 
         Args:
             scheduler (DDIM_Scheduler): Scheduler for the beta noise term.
             device (str): Device to run the diffusion process on ('cpu' or 'cuda').
-            ddim_scale (float): Scale between DDIM (0) and DDPM (1) sampling.
         """
         self.scheduler = scheduler
         self.device = device
-        self.ddim_scale = ddim_scale
 
     def add_noise(self, x0, t):
         """
@@ -156,16 +154,12 @@ class DiffusionProcess:
         for step in tqdm(reversed(range(steps)), desc="Sampling"):
             t = torch.tensor([step], device=self.device, dtype=torch.long).expand(xt.size(0))
             x0_pred = self.denoise(xt, context, t, model, predict_noise=predict_noise)
-
-            if step > 0:
-                xt = self.update_ddim(x0_pred, xt, t)
-            else:
-                xt = x0_pred
+            xt = self.update_ddpm(x0_pred, xt, t)
         return xt
 
-    def update_ddim(self, x0_pred, xt, t):
+    def update_ddpm(self, x0_pred, xt, t):
         """
-        Perform a DDIM update step for more deterministic sampling.
+        Perform a deterministic DDIM update step for more deterministic sampling.
 
         Args:
             x0_pred (torch.Tensor): Predicted clean data.
@@ -175,18 +169,15 @@ class DiffusionProcess:
         Returns:
             torch.Tensor: Updated noisy data for the next step.
         """
+        # DDIM logic here is deterministic. No noise is added; we just perform the reverse update.
         sqrt_a_bar_t = self.scheduler.sample_sqrt_a_bar_t(t).to(self.device)
-        sqrt_1_minus_a_bar_t = self.scheduler.sample_sqrt_1_minus_a_bar_t(t).to(self.device)
-        beta_t = self.scheduler.sample_beta_t(t).to(self.device)
-
-        direction = sqrt_1_minus_a_bar_t * (xt - sqrt_a_bar_t * x0_pred) / beta_t
-        xt_next = x0_pred + self.ddim_scale * direction
+        xt_next = sqrt_a_bar_t * x0_pred + torch.sqrt(1 - self.scheduler.sample_a_bar_t(t)) * xt
         return xt_next
 
     @torch.no_grad()
     def generate(self, model, context, shape, steps, predict_noise=True):
         """
-        Generate samples using the diffusion model.
+        Generate samples using the DDIM sampling process.
 
         Args:
             model (torch.nn.Module): Model used for generation.
