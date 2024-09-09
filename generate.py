@@ -217,7 +217,7 @@ if __name__ == "__main__":
     parser.add_argument("--sensor_folder1", type=str, default="./Own_Data/Labelled_Student_data/Accelerometer_Data/Meta_wrist", help="Path to the first sensor data folder")
     parser.add_argument("--sensor_folder2", type=str, default="./Own_Data/Labelled_Student_data/Accelerometer_Data/Meta_hip", help="Path to the second sensor data folder")
     parser.add_argument("--window_size", type=int, default=90, help="Window size for the sliding window dataset")
-    parser.add_argument("--batch_size", type=int, default=128, help="Batch size for generating samples")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for generating samples")
     parser.add_argument("--timesteps", type=int, default=1000, help="Number of timesteps for the diffusion process")
     parser.add_argument("--train_sensor_model", type=eval, choices=[True, False], default=False, help="Set to True to train the sensor model; set to False as this is inference")
     parser.add_argument('--ddim_scale', type=float, default=0.5, help='Scale factor for DDIM (0 for pure DDIM, 1 for pure DDPM)')
@@ -225,6 +225,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_type", type=str, default="Own_data", help="Dataset type")
     parser.add_argument("--skeleton_folder", type=str, default="./Own_Data/Labelled_Student_data/Skeleton_Data", help="Path to the skeleton data folder")
     parser.add_argument("--overlap", type=int, default=0, help="Overlap for the sliding window dataset")
+    parser.add_argument("--test_diffusion_model", type=eval, choices=[True, False], default=True, help="Whether to test the diffusion mode or not")
     
     args = parser.parse_args()
 
