@@ -130,15 +130,14 @@ def generate_samples(args, sensor_model, diffusion_model, device):
     with torch.no_grad():
         _, sensor1, sensor2, label = next(iter(dataloader))
         label_index = torch.argmax(label, dim=1)
-        print(f'Label {label} for the sample is {label_index.item()}')
         sensor1, sensor2 = sensor1.to(device), sensor2.to(device)
-        context = sensor_model(sensor1, sensor2, return_attn_output=True)
-
+        _, context = sensor_model(sensor1, sensor2, return_attn_output=True)
         check_for_nans(context, "context")  # Check for NaNs in the context
 
         generated_sample = diffusion_process.generate(
             model=diffusion_model, 
             context=context, 
+            label = label_pred, 
             shape=(args.batch_size, 90, 48), 
             steps=args.timesteps, 
             predict_noise=False
@@ -197,15 +196,7 @@ def main(args):
 
     visualize_skeleton(
                     generated_samples.cpu().detach().numpy(),
-                    save_path=f'./gif_tl/generatecode_generated_skeleton_animation_{1}.gif'
-                )
-    # Predict the class of the generated samples
-    print("Predicting classes for the generated samples...")
-    predicted_classes = predict_classes(generated_samples, skeleton_model, device)
-
-    # Output the results
-    print(f"Generated {len(generated_samples)} samples.")
-    print(f"Predicted Classes: {predicted_classes.tolist()}")
+                    save_path=f'./gif_tl/generatecode_generated_skeleton_animation_{1}.gif')
 
 
 if __name__ == "__main__":

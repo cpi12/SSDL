@@ -12,12 +12,11 @@ from sklearn.model_selection import StratifiedShuffleSplit
 from .dataset import SlidingWindowDataset, read_csv_files
 
 def compute_loss(
-    args, model, x0, context, t, mask=None, noise=None, device="cpu",
-    diffusion_process=None, angular_loss=False, lip_reg=False, epoch=None
+    args, model, x0, label, context, t, mask=None, noise=None, device="cpu",
+    diffusion_process=None, angular_loss=False, lip_reg=False, epoch=None, rank=0, batch_idx=0
 ):
     """
-    Custom loss function for the diffusion model using a mix of DDIM and DDPM.
-
+    Custom loss function for the diffusion model using a DDPM.
     Args:
         model (nn.Module): The diffusion model.
         x0 (torch.Tensor): The original clean input (e.g., skeleton positions).
@@ -30,7 +29,7 @@ def compute_loss(
         angular_loss (bool): Whether to include angular loss in the computation.
         lip_reg (bool): Whether to include Lipschitz regularization.
         epoch (int, optional): The current training epoch, used for adjusting angular loss weight.
-
+        rank (int, optional): The rank of the current GPU process (0 for main GPU).
     Returns:
         torch.Tensor: The computed total loss.
     """
@@ -38,75 +37,67 @@ def compute_loss(
         noise = torch.randn_like(x0)
 
     # Ensure all tensors are on the correct device
-    x0 = (x0 - x0.mean()) / x0.std()
     x0 = x0.to(device)
+    label = label.to(device)
     context = context.to(device)
     t = t.to(device)
     noise = noise.to(device)
 
     # Add noise to x0 to get xt
     xt, _ = diffusion_process.add_noise(x0, t)
-    x0_pred = model(xt, context, t).to(device)
-    x0_pred_originail = x0_pred
-    mse_loss = F.mse_loss(x0_pred, x0)
-    
-    if epoch is not None:
-            # For the 0th epoch, save both the original and predicted skeleton
-            if epoch == 1000:
+    # Toggle between predicting noise (DDPM) and predicting clean data (DDIM) using ddim_scale
+    if diffusion_process.ddim_scale == 1.0:
+        # Predict noise (DDPM approach)
+        predicted_noise = model(xt, context, t, sensor_pred=label).to(device)
+        mse_loss = F.mse_loss(predicted_noise, noise)
+    else:
+        # Predict clean data (DDIM approach)
+        x0_pred = model(xt, context, t, sensor_pred = label).to(device)
+        mse_loss = F.mse_loss(x0_pred, x0)
+
+        # Visualize only one specific sample during validation on rank 0 GPU
+        if epoch is not None and batch_idx == 0 and rank == 0:
+            sample_idx = 0  # Plot only the first sample
+            if epoch in [99, 599, 999]:
+                x_orignial = x0[sample_idx].unsqueeze(0)
+                x_gen = x0_pred[sample_idx].unsqueeze(0)
+
                 visualize_skeleton(
-                    x0.cpu().detach().numpy(),
-                    save_path=f'./gif_tl/original_skeleton_animation_{epoch}.gif'
+                    x_orignial.cpu().detach().numpy(),
+                    save_path=f'./gif_tl/original_skeleton_animation_{epoch}_sample_{sample_idx}.gif'
                 )
                 visualize_skeleton(
-                    x0_pred.cpu().detach().numpy(),
-                    save_path=f'./gif_tl/skeleton_animation_epoch_{epoch}.gif'
-                )
-            elif epoch == 2000:
-                visualize_skeleton(
-                    x0.cpu().detach().numpy(),
-                    save_path=f'./gif_tl/original_skeleton_animation_{epoch}.gif'
-                )
-                visualize_skeleton(
-                    x0_pred.cpu().detach().numpy(),
-                    save_path=f'./gif_tl/skeleton_animation_epoch_{epoch}.gif'
-                )
-            elif epoch == 5000:
-                visualize_skeleton(
-                    x0.cpu().detach().numpy(),
-                    save_path=f'./gif_tl/original_skeleton_animation_{epoch}.gif'
-                )
-                visualize_skeleton(
-                    x0_pred.cpu().detach().numpy(),
-                    save_path=f'./gif_tl/skeleton_animation_epoch_{epoch}.gif'
-                )
-            elif epoch == 10000:
-                visualize_skeleton(
-                    x0.cpu().detach().numpy(),
-                    save_path=f'./gif_tl/original_skeleton_animation_{epoch}.gif'
-                )
-                visualize_skeleton(
-                    x0_pred.cpu().detach().numpy(),
-                    save_path=f'./gif_tl/skeleton_animation_epoch_{epoch}.gif'
+                    x_gen.cpu().detach().numpy(),
+                    save_path=f'./gif_tl/skeleton_animation_epoch_{epoch}_sample_{sample_idx}.gif'
                 )
 
     total_loss = mse_loss
 
     # Optional angular loss
     if angular_loss:
-        predicted_joint_angles = compute_joint_angles(x0_pred)
-        joint_angles = compute_joint_angles(x0)
-        difference = joint_angles - predicted_joint_angles
-        # # Compute the Frobenius norm squared (||.||_F^2)
-        angular_loss_value = torch.norm(difference, p='fro')
+        if diffusion_process.ddim_scale == 1.0:
+            predicted_joint_angles = compute_joint_angles(predicted_noise)
+        else:
+            predicted_joint_angles = compute_joint_angles(x0_pred)
+            joint_angles = compute_joint_angles(x0)
+            difference = joint_angles - predicted_joint_angles
+            # # Compute the Frobenius norm squared (||.||_F^2)
+            angular_loss_value = torch.norm(difference, p='fro')
+
         total_loss += 0.05 * angular_loss_value
 
     # Optional Lipschitz regularization (LipReg)
     if lip_reg:
         noisy_context = add_random_noise(context, noise_std=0.01, noise_fraction=0.2)
-        xt_noisy, _ = diffusion_process.add_noise(x0, t, noisy_context)
-        x0_pred_lr = model(xt_noisy, noisy_context, t).to(device)
-        lip_reg_loss = F.mse_loss(x0_pred_lr, x0_pred_originail)
-        total_loss += 0.5 * lip_reg_loss
+        xt_noisy, _ = diffusion_process.add_noise(x0, t, noisy_context, sensor_pred=label)
+        if diffusion_process.ddim_scale == 1.0:
+            predicted_noise_lr = model(xt_noisy, noisy_context, t, sensor_pred=label).to(device)
+            lip_reg_loss = F.mse_loss(predicted_noise_lr, noise)
+        else:
+            x0_pred_lr = model(xt_noisy, noisy_context, t).to(device)
+            lip_reg_loss = F.mse_loss(x0_pred_lr, x0_pred)
+
+        total_loss += 0.05 * lip_reg_loss
 
     return total_loss
 
@@ -173,7 +164,6 @@ def prepare_dataset(args):
         window_size=window_size,
         overlap=overlap,
         label_encoder=label_encoder,
-        augment=args.augment,
         scaling="minmax"  # Use Min-Max scaling for each window segment
     )
     

@@ -1,6 +1,7 @@
 import os
 import pandas as pd
-
+from collections import defaultdict
+import random
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import numpy as np
 import torch
@@ -14,6 +15,12 @@ def read_csv_files(folder):
         file_path = os.path.join(folder, file)
         data[file] = pd.read_csv(file_path)
     return data
+
+def to_one_hot(label, num_classes):
+    """Convert a class index to one-hot encoded vector."""
+    one_hot = np.zeros(num_classes)
+    one_hot[label] = 1
+    return one_hot
 
 
 def handle_nan_and_scale(data, scaling_method="standard"):
@@ -90,8 +97,9 @@ class SlidingWindowDataset(Dataset):
             sensor2_df = self.sensor2_data[file]
 
             activity_code = file.split('A')[1][:2].lstrip('0')
+            
             label = self.label_encoder.transform([[activity_code]])[0]
-
+            num_classes = len(self.label_encoder.categories_[0]) 
             num_windows = (len(skeleton_df) - self.window_size) // step + 1
             for i in range(num_windows):
                 start = i * step
@@ -111,9 +119,9 @@ class SlidingWindowDataset(Dataset):
                 # Check for consistency in feature dimensions
                 if skeleton_window.shape[1] != 96:
                     continue
-                
+
                 joint_indices = np.array(self.key_joint_indexes)
-                final_indices = np.concatenate([[i*3, i*3+1, i*3+2] for i in joint_indices])
+                final_indices = np.concatenate([[i * 3, i * 3 + 1, i * 3 + 2] for i in joint_indices])
                 skeleton_window = skeleton_window[:, final_indices]
 
                 if skeleton_window.shape[0] != self.window_size or sensor1_window.shape[0] != self.window_size or sensor2_window.shape[0] != self.window_size:
@@ -126,16 +134,62 @@ class SlidingWindowDataset(Dataset):
                 sensor1_window = handle_nan_and_scale(sensor1_window, scaling_method=self.scaling)
                 sensor2_window = handle_nan_and_scale(sensor2_window, scaling_method=self.scaling)
 
+                # Normalize to range [0, 1]
+                skeleton_window = self._normalize_to_tensor(skeleton_window)
+
                 # Append original windows after augmentation
                 skeleton_windows.append(skeleton_window)
                 sensor1_windows.append(sensor1_window)
                 sensor2_windows.append(sensor2_window)
                 labels.append(label)
 
-        return skeleton_windows, sensor1_windows, sensor2_windows, labels
+        # Perform oversampling to ensure each class has 2000 samples
+        num_classes = len(self.label_encoder.categories_[0])  # Get the number of classes from OneHotEncoder
+        class_indices = defaultdict(list)
+        for idx, lbl in enumerate(labels):
+            lbl_index = lbl.argmax()
+            class_indices[lbl_index].append(idx)
+
+        # Proceed with the oversampling process...
+        skeleton_windows_oversampled = []
+        sensor1_windows_oversampled = []
+        sensor2_windows_oversampled = []
+        labels_oversampled = []
+
+        for lbl, indices in class_indices.items():
+            num_samples = len(indices)
+            if num_samples >= 1000:
+                selected_indices = random.sample(indices, 1000)
+            else:
+                additional_samples_needed = 1000 - num_samples
+                additional_indices = random.choices(indices, k=additional_samples_needed)
+                selected_indices = indices + additional_indices
+
+            for idx in selected_indices:
+                skeleton_windows_oversampled.append(skeleton_windows[idx])
+                sensor1_windows_oversampled.append(sensor1_windows[idx])
+                sensor2_windows_oversampled.append(sensor2_windows[idx])
+
+                # Convert the integer label back to one-hot encoding before appending
+                one_hot_label = to_one_hot(lbl, num_classes)  # Convert lbl (int) to one-hot encoded vector
+                labels_oversampled.append(one_hot_label)
+
+        # Replace original lists with oversampled data
+        self.skeleton_windows = skeleton_windows_oversampled
+        self.sensor1_windows = sensor1_windows_oversampled
+        self.sensor2_windows = sensor2_windows_oversampled
+        self.labels = labels_oversampled
+
+        return self.skeleton_windows, self.sensor1_windows, self.sensor2_windows, self.labels
 
     def __len__(self):
         return len(self.labels)
+
+    def _normalize_to_tensor(self, data):
+        """Converts data to a tensor and scales it between 0 and 1."""
+        min_val, max_val = data.min(), data.max()
+        normalized_data = (data - min_val) / (max_val - min_val + 1e-6)  # Avoid division by zero
+        return torch.tensor(normalized_data, dtype=torch.float32)
 
     def __getitem__(self, idx):
         skeleton_window = self.skeleton_windows[idx]

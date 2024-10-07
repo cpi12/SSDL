@@ -93,9 +93,9 @@ class Upsample1D(nn.Module):
         return self.transposed_conv(x)
 
 class UNet1D(nn.Module):
-    def __init__(self, latent_dim=90, time_emb_dim=64, context_dim=512, hidden_dim=128, dropout_prob=0.1):
+    def __init__(self, latent_dim=90, time_emb_dim=64, context_dim=512, hidden_dim=128, num_classes=12, dropout_prob=0.5):
         super().__init__()
-
+        self.class_emb = nn.Embedding(num_classes, time_emb_dim)
         self.time_mlp = nn.Sequential(
             SinusoidalPositionEmbedding(time_emb_dim),
             nn.Linear(time_emb_dim, time_emb_dim),
@@ -141,8 +141,12 @@ class UNet1D(nn.Module):
         self.lstm6 = LSTMBlock(hidden_dim, latent_dim)
         self.final_conv = nn.Conv1d(180, latent_dim, kernel_size=1, padding=0)
 
-    def forward(self, x, context, time):
+    def forward(self, x, context, time, sensor_pred):
         time_emb = self.time_mlp(time)
+        class_emb = self.class_emb(sensor_pred)
+        
+        # Combine Time and Class Embeddings
+        time_emb = time_emb + class_emb
         x = self.input_conv(x)
 
         # Encoder Path
@@ -197,6 +201,6 @@ class Diffusion1D(nn.Module):
             nn.init.ones_(m.weight)
             nn.init.zeros_(m.bias)
 
-    def forward(self, latent, context, time):
-        latent = self.unet(latent, context, time)
+    def forward(self, latent, context, time, sensor_pred):
+        latent = self.unet(latent, context, time, sensor_pred)
         return self.final(latent)

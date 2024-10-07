@@ -241,7 +241,7 @@ def train_diffusion_model(rank, args, device, train_loader, val_loader):
 
         for skeleton, sensor1, sensor2, mask in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} (Training)"):
             skeleton, sensor1, sensor2, mask = skeleton.to(device), sensor1.to(device), sensor2.to(device), mask.to(device)
-
+            mask = mask.argmax(dim=1)
             t = torch.randint(1, args.timesteps, (skeleton.shape[0],), device=device).long()
             context = sensor_model(sensor1, sensor2, return_attn_output=True)
             diffusion_optimizer.zero_grad()
@@ -253,6 +253,7 @@ def train_diffusion_model(rank, args, device, train_loader, val_loader):
                     x0=skeleton,
                     context=context,
                     t=t,
+                    label=mask,
                     mask=mask,
                     device=device,
                     diffusion_process=diffusion_process,
@@ -279,7 +280,7 @@ def train_diffusion_model(rank, args, device, train_loader, val_loader):
             for skeleton, sensor1, sensor2, mask in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} (Validation)"):
                 skeleton, sensor1, sensor2, mask = skeleton.to(device), sensor1.to(device), sensor2.to(device), mask.to(device)
                 t = torch.randint(1, args.timesteps, (skeleton.shape[0],), device=device).long()
-
+                mask = mask.argmax(dim=1)
                 with torch.cuda.amp.autocast():  # Enable mixed precision
                     loss = compute_loss(
                         args=args,
@@ -287,6 +288,7 @@ def train_diffusion_model(rank, args, device, train_loader, val_loader):
                         x0=skeleton,
                         context=sensor_model(sensor1, sensor2, return_attn_output=True),
                         t=t,
+                        label=mask,
                         mask=mask,
                         device=device,
                         diffusion_process=diffusion_process,
@@ -374,6 +376,7 @@ if __name__ == "__main__":
 
     # Timesteps to use for diffusion forward or reverse process
     parser.add_argument("--timesteps", type=int, default=10000, help="Number of timesteps for the diffusion process")
+    parser.add_argument('--ddim_scale', type=float, default=0.0, help='Scale factor for DDIM (0 for pure DDIM, 1 for pure DDPM)')
     
     #Whether to use the Angular loss and Lip Reg. modules as proposed.
     parser.add_argument("--angular_loss", type=eval, choices=[True, False], default=False, help="Whether to use angular loss during training")
