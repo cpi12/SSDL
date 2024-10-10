@@ -108,6 +108,6 @@ Below are the visual results from our experiments, showing the model's performan
 </div>
 
 <div style="text-align: center;">
-  <img src="/figures/fall.gif" alt="Combined Skeleton Result" style="width: 70%;"/>
-  <p><b>Figure 2:</b> The left side represents the <b>original skeleton falling backward pose</b>, and the right side shows the <b>generated skeleton falling pose</b> produced by the diffusion model.</p>
+  <img src="/figures/washing_hands.gif" alt="Combined Skeleton Result" style="width: 70%;"/>
+  <p><b>Figure 2:</b> The left side represents the <b>original skeleton washing hands pose</b>, and the right side shows the <b>generated skeleton washing hands pose</b> produced by the diffusion model.</p>
 </div>
