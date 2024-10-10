@@ -5,6 +5,8 @@ This repository contains the implementation of **SSDL**, a Sensor-to-Skeleton Di
 ## Introduction
 SSDL is a diffusion-based model designed to generate skeleton data conditioned on wearable sensor data. It addresses key challenges in sensor-based HAR, such as noise and instability, by employing **Lipschitz Regularization** to improve the robustness of generated data. SSDL has been tested on three benchmark datasets: **UTD-MHAD**, **Berkeley-MHAD**, and **SmartFall-MHAD**, showing state-of-the-art performance.
 
+![Figure 1](figures/fig2_model.pdf)
+
 ## Features
 - **Cross-modal generation**: Generates skeleton key points from sensor inputs.
 - **Angular Variations Module**: Extracts key joint movements to guide diffusion.
@@ -27,3 +29,4 @@ The training code in this repository utilizes **Distributed Data Parallel (DDP)*
 ### Requirements for Running DDP Code:
 - **Multiple GPUs**: To use DDP, your system must have multiple GPUs (or use multiple nodes with one or more GPUs per node).
 - **NCCL**: DDP typically uses NCCL as the backend for communication between GPUs.
+- **Based on number of GPUs**: One can run the code  
