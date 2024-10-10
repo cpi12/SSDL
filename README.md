@@ -13,8 +13,8 @@ SSDL is a diffusion-based model designed to generate skeleton data conditioned o
 ## Installation
 1. Clone the repository:
     ```bash
-    git clone https://github.com/your_username/SSDL.git
-    cd SSDL
+    git clone https://github.com/nikhiliit/SSDL-S2S-Diffusion-Model-with-LR-for-HAR.git
+    cd SSDL-S2S-Diffusion-Model-with-LR-for-HAR
     ```
 
 2. Install dependencies:
@@ -24,11 +24,6 @@ SSDL is a diffusion-based model designed to generate skeleton data conditioned o
 
 The training code in this repository utilizes **Distributed Data Parallel (DDP)** in PyTorch to take advantage of multiple GPUs for faster training. DDP replicates the model on each GPU and synchronizes gradients across devices, which helps to scale training efficiently without sacrificing performance.
 
-### Key Features of DDP Training:
-- **Data Parallelism**: The model is replicated on each GPU, and each GPU processes a different mini-batch of data.
-- **Gradient Synchronization**: After each forward and backward pass, gradients are synchronized across all GPUs.
-- **Efficient Communication**: DDP uses efficient communication strategies like NCCL (NVIDIA Collective Communications Library) for multi-GPU setups.
-  
 ### Requirements for Running DDP Code:
 - **Multiple GPUs**: To use DDP, your system must have multiple GPUs (or use multiple nodes with one or more GPUs per node).
 - **NCCL**: DDP typically uses NCCL as the backend for communication between GPUs.
