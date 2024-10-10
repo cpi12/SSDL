@@ -100,19 +100,43 @@ If you are using multiple GPUs, specify the number of GPUs using `--world_size` 
 
 ## Results
 
-Below are the visual results from our experiments, showing the model's performance during the diffusion process.
+Below are the visual results from our experiments, showing the model's performance during the diffusion process. In each GIF, the left side represents the original skeleton, and the right side represents the generated skeleton produced by the diffusion model.
 
 <div style="text-align: center;">
-  <img src="/figures/sitting_skeleton.gif" alt="Combined Skeleton Result" style="width: 70%;"/>
-  <p><b>Figure 1:</b> The left side represents the <b>original skeleton sitting pose</b>, and the right side shows the <b>generated skeleton sitting pose</b> produced by the diffusion model.</p>
+  <img src="/figures/sitting_skeleton.gif" alt="Combined Skeleton Sitting Pose" style="width: 70%;"/>
+  <p><b>Figure 1:</b> Sitting pose.</p>
 </div>
 
 <div style="text-align: center;">
-  <img src="/figures/washing_hands.gif" alt="Combined Skeleton Result" style="width: 70%;"/>
-  <p><b>Figure 2:</b> The left side represents the <b>original skeleton washing hands pose</b>, and the right side shows the <b>generated skeleton washing hands pose</b> produced by the diffusion model.</p>
+  <img src="/figures/washing_hands.gif" alt="Combined Skeleton Washing Hands Pose" style="width: 70%;"/>
+  <p><b>Figure 2:</b> Washing hands pose.</p>
 </div>
 
 <div style="text-align: center;">
-  <img src="/figures/side_fall.gif" alt="Combined Skeleton Result" style="width: 70%;"/>
-  <p><b>Figure 3:</b> The left side represents the <b>original skeleton side fall pose</b>, and the right side shows the <b>generated skeleton side fall pose</b> produced by the diffusion model.</p>
+  <img src="/figures/side_fall.gif" alt="Combined Skeleton Side Fall Pose" style="width: 70%;"/>
+  <p><b>Figure 3:</b> Side fall pose.</p>
 </div>
+
+For the rest of the results one can take a look at our paper published manuscipt.
+
+---
+
+## 📢 **New Updates**
+
+We are excited to announce that our paper titled **"SSDL: Sensor-to-Skeleton Diffusion Model with Lipschitz Regularization for Human Activity Recognition"** has been accepted into **MMM 2025**, the **31st International Conference on Multimedia Modeling**, which will be held from **January 8 - 10, 2025** in **Nara, Japan**.
+
+### Full Citation
+If you use the code from this repository, please cite our paper:
+
+**SSDL: Sensor-to-Skeleton Diffusion Model with Lipschitz Regularization for Human Activity Recognition**  
+*Nikhil Sharma<sup>1</sup>, Changchang Sun<sup>1</sup>, Zhenghao Zhao<sup>1</sup>, Anne H. H. Ngu<sup>2</sup>, Hugo Latapie<sup>3</sup>, Yan Yan<sup>1</sup>*  
+<sup>1</sup>Illinois Institute of Technology, Chicago IL 60609, USA  
+<sup>2</sup>Texas State University, San Marcos, TX 78666, USA  
+<sup>3</sup>Cisco Research  
+
+Published in **MMM 2025, 31st International Conference on Multimedia Modeling**, January 8-10, Nara, Japan.
+
+
+---
+
+Stay tuned for more updates! 🚨
