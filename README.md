@@ -106,3 +106,8 @@ Below are the visual results from our experiments, showing the model's performan
   <img src="/figures/sitting_skeleton.gif" alt="Combined Skeleton Result" style="width: 70%;"/>
   <p><b>Figure 1:</b> The left side represents the <b>original skeleton sitting pose</b>, and the right side shows the <b>generated skeleton sitting pose</b> produced by the diffusion model.</p>
 </div>
+
+<div style="text-align: center;">
+  <img src="/figures/fall.gif" alt="Combined Skeleton Result" style="width: 70%;"/>
+  <p><b>Figure 2:</b> The left side represents the <b>original skeleton falling backward pose</b>, and the right side shows the <b>generated skeleton falling pose</b> produced by the diffusion model.</p>
+</div>
