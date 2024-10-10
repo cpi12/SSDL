@@ -104,11 +104,11 @@ Below are the visual results from our experiments, showing the model's performan
 
 <div style="display: flex; justify-content: space-around; align-items: center;">
   <div style="flex: 1; text-align: center;">
-    <img src="results_visual/original_skeleton_sitting.gif" alt="Result 1" style="max-width: 100%; height: auto;"/>
+    <img src="results_visual/original_skeleton_sitting.gif" alt="Result 1" style="max-width: 45%; height: auto;"/>
     <p><b>Figure 1:</b> Original Skeleton Sitting Pose.</p>
   </div>
   <div style="flex: 1; text-align: center;">
-    <img src="results_visual/generated_skeleton_sitting.gif" alt="Result 2" style="max-width: 100%; height: auto;"/>
+    <img src="results_visual/generated_skeleton_sitting.gif" alt="Result 2" style="max-width: 45%; height: auto;"/>
     <p><b>Figure 2:</b> Generated Skeleton Sitting Pose.</p>
   </div>
 </div>
