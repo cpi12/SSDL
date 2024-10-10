@@ -30,4 +30,71 @@ The training code in this repository utilizes **Distributed Data Parallel (DDP)*
 ### Requirements for Running DDP Code:
 - **Multiple GPUs**: To use DDP, your system must have multiple GPUs (or use multiple nodes with one or more GPUs per node).
 - **NCCL**: DDP typically uses NCCL as the backend for communication between GPUs.
-- **Based on number of GPUs**: One can run the code  
+
+## Training the Model
+
+To train the **SSDL** model, several key parameters and configurations can be adjusted to control the training process. Below is an overview of the main arguments that you can modify:
+
+### Seed
+- **`--seed`**: Set a seed value to ensure reproducibility during training.
+
+### Learning Rates
+- **`--sensor_lr`**: Learning rate for the sensor model.
+- **`--skeleton_lr`**: Learning rate for the skeleton model.
+- **`--diffusion_lr`**: Learning rate for the diffusion process.
+
+### Training Flags
+- **`--train_sensor_model`**: Set to `True` to train the sensor model. Set to `False` to train the diffusion model.
+- **`--train_skeleton_model`**: Set to `True` to train the skeleton model. If the skeleton model is already trained, set this to `False` to skip skeleton training.
+
+### Dataset Configuration
+- **`--overlap`** and **`--window_size`**: Control how the sliding window is applied to the dataset for sensor and skeleton data.
+- **`--skeleton_folder`**, **`--sensor_folder1`**, and **`--sensor_folder2`**: These are the paths to the skeleton and sensor data directories.
+
+### Epochs
+- **`--epochs`**: Total number of epochs for training the diffusion model.
+- **`--sensor_epoch`**: Number of epochs for training the sensor model.
+- **`--skeleton_epochs`**: Number of epochs for training the skeleton model.
+
+### Model Path and Batch Size
+- **`--sensor_model_path`**: Defines the path to the pre-trained sensor model. It can be used to load the model and continue training.
+- **`--batch_size`**: Specifies the batch size used during training.
+
+### Distributed Training
+- **`--world_size`**: Defines the number of GPUs to use for training. If you have multiple GPUs, you can utilize **Distributed Data Parallel (DDP)** to accelerate the training process.
+
+### Diffusion Process
+- **`--timesteps`**: Sets the number of timesteps for the forward and reverse diffusion process.
+- **`--ddim_scale`**: Controls the scale factor for the DDIM (Denoising Diffusion Implicit Models) process.
+
+### Loss Functions
+- **`--angular_loss`**: When enabled, this adds angular loss to ensure that the joint angles between skeleton keypoints are consistent.
+- **`--lip_reg`**: Enables the Lipschitz Regularization (LR) module, which helps stabilize training when sensor data is noisy.
+
+---
+
+## How to Train the Model
+
+### 1. Set the Learning Rates
+Decide on the learning rates for the sensor model, skeleton model, and diffusion model. Adjust them using the corresponding arguments (`--sensor_lr`, `--skeleton_lr`, `--diffusion_lr`).
+
+### 2. Choose Which Models to Train
+- To train the **sensor model**, set `--train_sensor_model` to `True`.
+- To train the **skeleton model**, set `--train_skeleton_model` to `True`. If the skeleton model is already trained, set this to `False` to skip its training.
+
+### 3. Configure Dataset Paths
+Make sure to specify the correct directories for your skeleton and sensor data using the `--skeleton_folder`, `--sensor_folder1`, and `--sensor_folder2` arguments.
+
+### 4. Set the Number of Epochs
+Determine how many epochs to train each model using the `--epochs`, `--sensor_epoch`, and `--skeleton_epochs` arguments.
+
+### 5. Enable or Disable Loss Functions
+- To use **Angular Loss**, set `--angular_loss` to `True`.
+- To include **Lipschitz Regularization (LR)**, ensure `--lip_reg` is set to `True`.
+
+### 6. Adjust Diffusion Process Parameters
+Configure the diffusion timesteps and scaling using `--timesteps` and `--ddim_scale`.
+
+### 7. Distributed Training
+If you are using multiple GPUs, specify the number of GPUs using `--world_size` and run the script with **Distributed Data Parallel (DDP)**.
+
