@@ -129,11 +129,7 @@ We are excited to announce that our paper titled **"SSDL: Sensor-to-Skeleton Dif
 If you use the code from this repository, please cite our paper:
 
 **SSDL: Sensor-to-Skeleton Diffusion Model with Lipschitz Regularization for Human Activity Recognition**  
-*Nikhil Sharma<sup>1</sup>, Changchang Sun<sup>1</sup>, Zhenghao Zhao<sup>1</sup>, Anne H. H. Ngu<sup>2</sup>, Hugo Latapie<sup>3</sup>, Yan Yan<sup>1</sup>*  
-<sup>1</sup>Illinois Institute of Technology, Chicago IL 60609, USA  
-<sup>2</sup>Texas State University, San Marcos, TX 78666, USA  
-<sup>3</sup>Cisco Research  
-
+*Nikhil Sharma, Changchang Sun, Zhenghao Zhao, Anne H. H. Ngu, Hugo Latapie, Yan Yan*  
 Published in **MMM 2025, 31st International Conference on Multimedia Modeling**, January 8-10, Nara, Japan.
 
 
