@@ -344,7 +344,7 @@ def main(rank, args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Distributed Training for Diffusion and Sensor Models")
-    parser.add_argument('--seed', type=int, default=0, help="seed")
+    parser.add_argument('--seed', type=int, default=42, help="seed")
     
     #Setting up learning rates for the models
     parser.add_argument("--sensor_lr", type=float, default=1e-3, help="Weight decay for sensor regularization")

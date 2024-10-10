@@ -142,6 +142,8 @@ def generate_samples(args, sensor_model, diffusion_model, device):
             steps=args.timesteps, 
             predict_noise=False
         )
+        
+        #Save it here
 
         check_for_nans(generated_sample, "generated_sample")  # Check for NaNs in generated samples
 
