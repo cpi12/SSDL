@@ -98,3 +98,17 @@ Configure the diffusion timesteps and scaling using `--timesteps` and `--ddim_sc
 ### 7. Distributed Training
 If you are using multiple GPUs, specify the number of GPUs using `--world_size` and run the script with **Distributed Data Parallel (DDP)**.
 
+## Results
+
+Below are the visual results from our experiments, showing the model's performance during the diffusion process.
+
+<div style="display: flex; justify-content: space-around;">
+  <div style="flex: 1; text-align: center;">
+    <img src="results_visual/original_skeleton_sitting.gif" alt="Result 1" style="width: 45%;"/>
+    <p><b>Figure 1:</b> original Skeleton Sitting Pose.</p>
+  </div>
+  <div style="flex: 1; text-align: center;">
+    <img src="results_visual/generated_skeleton_sitting.gif" alt="Result 2" style="width: 45%;"/>
+    <p><b>Figure 2:</b> Generated Skeleton Sitting Pose.</p>
+  </div>
+</div>
