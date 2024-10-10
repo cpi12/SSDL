@@ -102,13 +102,13 @@ If you are using multiple GPUs, specify the number of GPUs using `--world_size` 
 
 Below are the visual results from our experiments, showing the model's performance during the diffusion process.
 
-<div style="display: flex; justify-content: space-around;">
+<div style="display: flex; justify-content: space-around; align-items: center;">
   <div style="flex: 1; text-align: center;">
-    <img src="results_visual/original_skeleton_sitting.gif" alt="Result 1" style="width: 25%;"/>
-    <p><b>Figure 1:</b> original Skeleton Sitting Pose.</p>
+    <img src="results_visual/original_skeleton_sitting.gif" alt="Result 1" style="max-width: 100%; height: auto;"/>
+    <p><b>Figure 1:</b> Original Skeleton Sitting Pose.</p>
   </div>
   <div style="flex: 1; text-align: center;">
-    <img src="results_visual/generated_skeleton_sitting.gif" alt="Result 2" style="width: 25%;"/>
+    <img src="results_visual/generated_skeleton_sitting.gif" alt="Result 2" style="max-width: 100%; height: auto;"/>
     <p><b>Figure 2:</b> Generated Skeleton Sitting Pose.</p>
   </div>
 </div>
