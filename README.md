@@ -2,6 +2,12 @@
 
 This repository contains the implementation of **SSDL**, a Sensor-to-Skeleton Diffusion Model, for generating skeleton data from sensor inputs to perform **Human Activity Recognition (HAR)**. The model incorporates **Angular Variations** and **Lipschitz Regularization** to improve accuracy and robustness on noisy sensor data.
 
+
+## 📢 **New Updates**
+
+We are excited to announce that our paper titled **"SSDL: Sensor-to-Skeleton Diffusion Model with Lipschitz Regularization for Human Activity Recognition"** has been accepted into **MMM 2025**, the **31st International Conference on Multimedia Modeling**, which will be held from **January 8 - 10, 2025** in **Nara, Japan**.
+
+
 ![Figure 1](figures/fig2_model/fig2_model-1.png)
 
 ## Introduction
@@ -120,10 +126,6 @@ Below are the visual results from our experiments, showing the model's performan
 For the rest of the results one can take a look at our paper published manuscipt.
 
 ---
-
-## 📢 **New Updates**
-
-We are excited to announce that our paper titled **"SSDL: Sensor-to-Skeleton Diffusion Model with Lipschitz Regularization for Human Activity Recognition"** has been accepted into **MMM 2025**, the **31st International Conference on Multimedia Modeling**, which will be held from **January 8 - 10, 2025** in **Nara, Japan**.
 
 ### Full Citation
 If you use the code from this repository, please cite our paper:
