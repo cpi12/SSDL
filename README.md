@@ -19,8 +19,8 @@ SSDL is a diffusion-based model designed to generate skeleton data conditioned o
 ## Installation
 1. Clone the repository:
     ```bash
-    git clone https://github.com/nikhiliit/SSDL-S2S-Diffusion-Model-with-LR-for-HAR.git
-    cd SSDL-S2S-Diffusion-Model-with-LR-for-HAR
+    git clone https://github.com/nikhiliit/SSDL.git
+    cd SSDL
     ```
 
 2. Install dependencies:
