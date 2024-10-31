@@ -201,115 +201,188 @@ def train_skeleton_model(rank, args, device, train_loader, val_loader):
                 print(f"Saved best skeleton model with Validation Loss: {best_loss:.4f} and Accuracy: {best_accuracy:.2f}%")
 
 def train_diffusion_model(rank, args, device, train_loader, val_loader):
-    print("Training Diffusion model")
-    # Set seed for reproducibility within this process
+    print("Training Diffusion model with adaptive Skeleton model focus")
     torch.manual_seed(args.seed + rank)
+
+    # Load models
     sensor_model = load_sensor_model(args, device)
     diffusion_model = load_diffusion(device)
+    skeleton_model = SkeletonLSTMModel(input_size=48, num_classes=12).to(device)
 
+    # Enable DistributedDataParallel
     sensor_model = DDP(sensor_model, device_ids=[rank], find_unused_parameters=True)
     diffusion_model = DDP(diffusion_model, device_ids=[rank], find_unused_parameters=True)
+    skeleton_model = DDP(skeleton_model, device_ids=[rank], find_unused_parameters=True)
 
+    # Optimizers and learning rate schedulers
     diffusion_optimizer = optim.Adam(
         diffusion_model.parameters(),
-        lr=args.diffusion_lr,
+        lr=1e-3,
         eps=1e-8,
         betas=(0.9, 0.98)
     )
+    skeleton_optimizer = optim.Adam(skeleton_model.parameters(), lr=1e-3, eps=1e-8, betas=(0.9, 0.98))
 
-    # Setup output directories
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(diffusion_optimizer, mode='min', factor=0.5, patience=5, verbose=True)
+    skeleton_scheduler = torch.optim.lr_scheduler.StepLR(skeleton_optimizer, step_size=args.step_size, gamma=0.1)
+
+    # Set up output directories
     diffusion_model_save_dir = os.path.join(args.output_dir, "diffusion_model")
+    skeleton_model_save_dir = os.path.join(args.output_dir, "skeleton_model")
     ensure_dir(diffusion_model_save_dir, rank)
+    ensure_dir(skeleton_model_save_dir, rank)
 
-    writer = None
-    if rank == 0:
-        writer = SummaryWriter(log_dir=diffusion_model_save_dir)
+    writer = SummaryWriter(log_dir=diffusion_model_save_dir) if rank == 0 else None
 
-    best_loss = float('inf')
-    scaler = torch.cuda.amp.GradScaler()
+    best_diffusion_loss = float('inf')
+    best_skeleton_loss = float('inf')
+    scaling_factor = 0.01  # Initial scaling factor for skeleton model loss
 
     # Initialize the diffusion process with the scheduler
     diffusion_process = DiffusionProcess(
         scheduler=Scheduler(sched_type='cosine', T=args.timesteps, step=1, device=device),
-        device=device
+        device=device,
+        ddim_scale=args.ddim_scale
     )
 
     for epoch in range(args.epochs):
         diffusion_model.train()
         sensor_model.train()
         epoch_train_loss = 0.0
+        epoch_skeleton_loss = 0.0
+        correct_train = 0
+        total_train = 0
 
-        for skeleton, sensor1, sensor2, mask in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} (Training)"):
+        # Train diffusion model and skeleton model
+        for batch_idx, (skeleton, sensor1, sensor2, mask) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} (Training)")):
             skeleton, sensor1, sensor2, mask = skeleton.to(device), sensor1.to(device), sensor2.to(device), mask.to(device)
-            mask = mask.argmax(dim=1)
             t = torch.randint(1, args.timesteps, (skeleton.shape[0],), device=device).long()
-            context = sensor_model(sensor1, sensor2, return_attn_output=True)
+            output, context = sensor_model(sensor1, sensor2, return_attn_output=True)
+            mask = mask.argmax(dim=1)
             diffusion_optimizer.zero_grad()
+            skeleton_optimizer.zero_grad()
 
-            with torch.cuda.amp.autocast():  # Enable mixed precision
-                loss = compute_loss(
+            # Compute diffusion model loss and generate x0_pred
+            loss, x0_pred = compute_loss(
+                args=args,
+                model=diffusion_model,
+                x0=skeleton,
+                context=context,
+                label=mask,
+                t=t,
+                mask=mask,
+                device=device,
+                diffusion_process=diffusion_process,
+                angular_loss=args.angular_loss,
+                epoch=epoch,
+                rank=rank
+            )
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(diffusion_model.parameters(), max_norm=1.0)
+            diffusion_optimizer.step()
+            epoch_train_loss += loss.item()
+
+            # Ensure skeleton model is in training mode before calculating skeleton loss
+            skeleton_model.train()
+            skeleton_output = skeleton_model(x0_pred.detach())
+            skeleton_loss = torch.nn.CrossEntropyLoss()(skeleton_output, mask)
+
+            # Apply scaling factor to the skeleton loss
+            adjusted_skeleton_loss = scaling_factor * skeleton_loss
+            adjusted_skeleton_loss.backward()
+            torch.nn.utils.clip_grad_norm_(skeleton_model.parameters(), max_norm=1.0)
+            skeleton_optimizer.step()
+            epoch_skeleton_loss += adjusted_skeleton_loss.item()
+
+            # Calculate accuracy for skeleton model
+            _, predicted = torch.max(skeleton_output, 1)
+            total_train += mask.size(0)
+            correct_train += (predicted == mask).sum().item()
+
+        avg_train_loss = epoch_train_loss / len(train_loader)
+        avg_skeleton_loss = epoch_skeleton_loss / len(train_loader)
+        train_accuracy = 100 * correct_train / total_train
+
+        # Validation phase
+        diffusion_model.eval()
+        skeleton_model.eval()
+        epoch_val_loss = 0.0
+        epoch_skeleton_val_loss = 0.0
+        correct_val = 0
+        total_val = 0
+        with torch.no_grad():
+            for batch_idx, (skeleton, sensor1, sensor2, mask) in enumerate(tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} (Validation)")):
+                skeleton, sensor1, sensor2, mask = skeleton.to(device), sensor1.to(device), sensor2.to(device), mask.to(device)
+                t = torch.randint(1, args.timesteps, (skeleton.shape[0],), device=device).long()
+                output, context = sensor_model(sensor1, sensor2, return_attn_output=True)
+                mask = mask.argmax(dim=1)
+
+                # Compute validation loss for diffusion model
+                val_loss, x0_pred_val = compute_loss(
                     args=args,
                     model=diffusion_model,
                     x0=skeleton,
                     context=context,
-                    t=t,
                     label=mask,
+                    t=t,
                     mask=mask,
                     device=device,
                     diffusion_process=diffusion_process,
                     angular_loss=args.angular_loss,
-                    epoch=epoch
+                    epoch=epoch,
+                    rank=rank
                 )
+                epoch_val_loss += val_loss.item()
 
-            scaler.scale(loss).backward()
+                # Skeleton model validation loss
+                skeleton_output_val = skeleton_model(x0_pred_val.detach())
+                skeleton_val_loss = torch.nn.CrossEntropyLoss()(skeleton_output_val, mask)
+                epoch_skeleton_val_loss += skeleton_val_loss.item()
 
-            # Gradient Clipping (optional)
-            torch.nn.utils.clip_grad_norm_(diffusion_model.parameters(), max_norm=1.0)
-
-            scaler.step(diffusion_optimizer)
-            scaler.update()
-
-            epoch_train_loss += loss.item()
-
-        avg_train_loss = epoch_train_loss / len(train_loader)
-
-        diffusion_model.eval()
-        sensor_model.eval()
-        epoch_val_loss = 0.0
-        with torch.no_grad():
-            for skeleton, sensor1, sensor2, mask in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} (Validation)"):
-                skeleton, sensor1, sensor2, mask = skeleton.to(device), sensor1.to(device), sensor2.to(device), mask.to(device)
-                t = torch.randint(1, args.timesteps, (skeleton.shape[0],), device=device).long()
-                mask = mask.argmax(dim=1)
-                with torch.cuda.amp.autocast():  # Enable mixed precision
-                    loss = compute_loss(
-                        args=args,
-                        model=diffusion_model,
-                        x0=skeleton,
-                        context=sensor_model(sensor1, sensor2, return_attn_output=True),
-                        t=t,
-                        label=mask,
-                        mask=mask,
-                        device=device,
-                        diffusion_process=diffusion_process,
-                        angular_loss=args.angular_loss,
-                        epoch=epoch
-                    )
-                epoch_val_loss += loss.item()
+                _, predicted_val = torch.max(skeleton_output_val, 1)
+                total_val += mask.size(0)
+                correct_val += (predicted_val == mask).sum().item()
 
         avg_val_loss = epoch_val_loss / len(val_loader)
-        # scheduler.step(avg_val_loss)
+        avg_skeleton_val_loss = epoch_skeleton_val_loss / len(val_loader)
+        val_accuracy = 100 * correct_val / total_val
+        if avg_val_loss < best_diffusion_loss:
+            best_diffusion_loss = avg_val_loss
+            if rank == 0:
+                torch.save(diffusion_model.state_dict(), os.path.join(diffusion_model_save_dir, "best_diffusion_model.pth"))
+                print(f"Saved best diffusion model at {diffusion_model_save_dir}")
+            scaling_factor = min(scaling_factor + 0.1, 1.0)
+
+        scheduler.step(avg_val_loss)
+        skeleton_scheduler.step(avg_skeleton_val_loss)
 
         if rank == 0:
-            print(f"Epoch {epoch+1}/{args.epochs}, Average Training Loss: {avg_train_loss}, Average Validation Loss: {avg_val_loss}")
-            writer.add_scalar('Loss/Train', avg_train_loss, epoch)
-            writer.add_scalar('Loss/Validation', avg_val_loss, epoch)
+            print(f"Epoch {epoch+1}/{args.epochs}, "
+                  f"Avg Diffusion Train Loss: {avg_train_loss:.4f}, Avg Diffusion Val Loss: {avg_val_loss:.4f}, "
+                  f"Avg Skeleton Train Loss: {avg_skeleton_loss:.4f}, Avg Skeleton Val Loss: {avg_skeleton_val_loss:.4f}, "
+                  f"Skeleton Train Accuracy: {train_accuracy:.2f}, Skeleton Val Accuracy: {val_accuracy:.2f}")
+            writer.add_scalar('Loss/Diffusion Train', avg_train_loss, epoch)
+            writer.add_scalar('Loss/Diffusion Validation', avg_val_loss, epoch)
+            writer.add_scalar('Loss/Skeleton Train', avg_skeleton_loss, epoch)
+            writer.add_scalar('Loss/Skeleton Validation', avg_skeleton_val_loss, epoch)
+            writer.add_scalar('Accuracy/Skeleton Train', train_accuracy, epoch)
+            writer.add_scalar('Accuracy/Skeleton Validation', val_accuracy, epoch)
+            writer.add_scalar('Scaling Factor', scaling_factor, epoch)
 
-            if avg_val_loss < best_loss:
-                best_loss = avg_val_loss
-                torch.save(diffusion_model.state_dict(), os.path.join(diffusion_model_save_dir, f"best_diffusion_model.pth"))
-                print(f"Saved best diffusion model with Validation Loss: {best_loss}")
+            # Save the best models
+            if rank == 0 and (epoch + 1) % 300 == 0 or (epoch + 1) == args.epochs:
+                diffusion_model_path = os.path.join(diffusion_model_save_dir, f"diffusion_model_epoch_{epoch+1}.pth")
+                skeleton_model_path = os.path.join(skeleton_model_save_dir, f"skeleton_model_epoch_{epoch+1}.pth")
+                torch.save(diffusion_model.state_dict(), diffusion_model_path)
+                torch.save(skeleton_model.state_dict(), skeleton_model_path)
+                print(f"Saved diffusion model checkpoint at epoch {epoch+1} to {diffusion_model_path}")
+                print(f"Saved skeleton model checkpoint at epoch {epoch+1} to {skeleton_model_path}")
 
+            if avg_skeleton_val_loss < best_skeleton_loss:
+                best_skeleton_loss = avg_skeleton_val_loss
+                torch.save(skeleton_model.state_dict(), os.path.join(skeleton_model_save_dir, "best_skeleton_model.pth"))
+                print(f"Saved best Skeleton model at {skeleton_model_save_dir}")
+                
 def main(rank, args):
     setup(rank, args.world_size, seed=42)
     device = torch.device(f'cuda:{rank}')
