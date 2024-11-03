@@ -137,7 +137,7 @@ def generate_samples(args, sensor_model, diffusion_model, device):
         generated_sample = diffusion_process.generate(
             model=diffusion_model, 
             context=context, 
-            label = label_pred, 
+            label = label_index, 
             shape=(args.batch_size, 90, 48), 
             steps=args.timesteps, 
             predict_noise=False

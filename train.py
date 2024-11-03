@@ -201,7 +201,7 @@ def train_skeleton_model(rank, args, device, train_loader, val_loader):
                 print(f"Saved best skeleton model with Validation Loss: {best_loss:.4f} and Accuracy: {best_accuracy:.2f}%")
 
 def train_diffusion_model(rank, args, device, train_loader, val_loader):
-    print("Training Diffusion model with adaptive Skeleton model focus")
+    print("Training Diffusion model")
     torch.manual_seed(args.seed + rank)
 
     # Load models
@@ -223,7 +223,7 @@ def train_diffusion_model(rank, args, device, train_loader, val_loader):
     )
     skeleton_optimizer = optim.Adam(skeleton_model.parameters(), lr=args.skeleton_lr, eps=1e-8, betas=(0.9, 0.98))
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(diffusion_optimizer, mode='min', factor=0.5, patience=5, verbose=True)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(diffusion_optimizer, mode='min', factor=0.5, patience=8, verbose=False)
     skeleton_scheduler = torch.optim.lr_scheduler.StepLR(skeleton_optimizer, step_size=args.step_size, gamma=0.1)
 
     # Set up output directories
