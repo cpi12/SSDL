@@ -153,12 +153,12 @@ class UNet1D(nn.Module):
         x = self.lstm1(x)
         x = self.conv1(x, time_emb)
         x = self.downsample1(x)
-        x = self.dropout1(x)
+        # x = self.dropout1(x)
 
         x = self.lstm2(x)
         x = self.conv2(x, time_emb)
         x = self.downsample2(x)
-        x = self.dropout2(x)
+        # x = self.dropout2(x)
 
         x = self.lstm3(x)
         x = self.conv3(x, time_emb)
@@ -172,12 +172,12 @@ class UNet1D(nn.Module):
         x = self.conv4(x, time_emb)
         x = self.lstm4(x)
         x = self.upsample1(x)
-        x = self.dropout3(x)
+        # x = self.dropout3(x)
 
         x = self.conv5(x, time_emb)
         x = self.lstm5(x)
         x = self.upsample2(x)
-        x = self.dropout4(x)
+        # x = self.dropout4(x)
 
         x = self.conv6(x, time_emb)
         x = self.lstm6(x)
