@@ -99,7 +99,7 @@ def compute_loss(
 
         total_loss += 0.05 * lip_reg_loss
 
-    return total_loss
+    return total_loss, x0_pred
 
 
 def add_random_noise(context, noise_std=0.01, noise_fraction=0.2):

@@ -83,8 +83,6 @@ class SensorConvLSTMClassifier(nn.Module):
         out += residual
         return out
 
-
-
 class CombinedLSTMClassifier(nn.Module):
     def __init__(self, sensor_input_size, hidden_size, num_layers, num_classes, conv_channels, kernel_size, dropout=0.5, num_heads=8):
         super(CombinedLSTMClassifier, self).__init__()
@@ -108,8 +106,6 @@ class CombinedLSTMClassifier(nn.Module):
         attn_output = attn_output.squeeze(1)
 
         out = self.dropout(attn_output)
-        if return_attn_output:
-            return out
         class_output = self.fc(out)
 
-        return class_output
+        return class_output, out

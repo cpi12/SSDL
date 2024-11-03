@@ -217,11 +217,11 @@ def train_diffusion_model(rank, args, device, train_loader, val_loader):
     # Optimizers and learning rate schedulers
     diffusion_optimizer = optim.Adam(
         diffusion_model.parameters(),
-        lr=1e-3,
+        lr=args.diffusion_lr,
         eps=1e-8,
         betas=(0.9, 0.98)
     )
-    skeleton_optimizer = optim.Adam(skeleton_model.parameters(), lr=1e-3, eps=1e-8, betas=(0.9, 0.98))
+    skeleton_optimizer = optim.Adam(skeleton_model.parameters(), lr=args.skeleton_lr, eps=1e-8, betas=(0.9, 0.98))
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(diffusion_optimizer, mode='min', factor=0.5, patience=5, verbose=True)
     skeleton_scheduler = torch.optim.lr_scheduler.StepLR(skeleton_optimizer, step_size=args.step_size, gamma=0.1)
@@ -431,9 +431,9 @@ if __name__ == "__main__":
     #Data folders and setting up the parameters for the dataset.py
     parser.add_argument("--overlap", type=int, default=45, help="Overlap for the sliding window dataset")
     parser.add_argument("--window_size", type=int, default=90, help="Window size for the sliding window dataset")
-    parser.add_argument("--skeleton_folder", type=str, default="./Data/Skeleton_Data", help="Path to the skeleton data folder")
-    parser.add_argument("--sensor_folder1", type=str, default="./Data/Accelerometer_Data/Meta_wrist", help="Path to the first sensor data folder")
-    parser.add_argument("--sensor_folder2", type=str, default="./Data/Accelerometer_Data/Meta_hip", help="Path to the second sensor data folder")
+    parser.add_argument("--skeleton_folder", type=str, default="./Own_Data/Labelled_Student_data/Skeleton_Data", help="Path to the skeleton data folder")
+    parser.add_argument("--sensor_folder1", type=str, default="./Own_Data/Labelled_Student_data/Accelerometer_Data/Meta_wrist", help="Path to the first sensor data folder")
+    parser.add_argument("--sensor_folder2", type=str, default="./Own_Data/Labelled_Student_data/Accelerometer_Data/Meta_hip", help="Path to the second sensor data folder")
 
     #Epoches to train the models
     parser.add_argument("--epochs", type=int, default=3000, help="Number of epochs to train the diffusion model")
