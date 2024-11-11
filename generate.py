@@ -134,6 +134,9 @@ def generate_samples(args, sensor_model, diffusion_model, device):
         _, context = sensor_model(sensor1, sensor2, return_attn_output=True)
         check_for_nans(context, "context")  # Check for NaNs in the context
 
+        context = context.to(device)
+        label_index = label_index.to(device)
+
         generated_sample = diffusion_process.generate(
             model=diffusion_model, 
             context=context, 
@@ -214,7 +217,7 @@ if __name__ == "__main__":
     parser.add_argument("--timesteps", type=int, default=1000, help="Number of timesteps for the diffusion process")
     parser.add_argument("--train_sensor_model", type=eval, choices=[True, False], default=False, help="Set to True to train the sensor model; set to False as this is inference")
     parser.add_argument('--ddim_scale', type=float, default=0.5, help='Scale factor for DDIM (0 for pure DDIM, 1 for pure DDPM)')
-    parser.add_argument("--output_dir", type=str, default="./results_new", help="Directory to save the trained model")
+    parser.add_argument("--output_dir", type=str, default="./results", help="Directory to save the trained model")
     parser.add_argument("--dataset_type", type=str, default="Own_data", help="Dataset type")
     parser.add_argument("--skeleton_folder", type=str, default="./Own_Data/Labelled_Student_data/Skeleton_Data", help="Path to the skeleton data folder")
     parser.add_argument("--overlap", type=int, default=0, help="Overlap for the sliding window dataset")

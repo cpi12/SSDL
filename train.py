@@ -76,7 +76,7 @@ def train_sensor_model(rank, args, device, train_loader, val_loader):
         for _, sensor1, sensor2, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.sensor_epoch} (Training)"):
             sensor1, sensor2, labels = sensor1.to(device), sensor2.to(device), labels.to(device)
             sensor_optimizer.zero_grad()
-            output = sensor_model(sensor1, sensor2)
+            output, _= sensor_model(sensor1, sensor2)
             loss = torch.nn.CrossEntropyLoss()(output, labels.argmax(dim=1))
 
             loss.backward()
@@ -93,7 +93,7 @@ def train_sensor_model(rank, args, device, train_loader, val_loader):
         with torch.no_grad():
             for _, sensor1, sensor2, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.sensor_epoch} (Validation)"):
                 sensor1, sensor2, labels = sensor1.to(device), sensor2.to(device), labels.to(device)
-                output = sensor_model(sensor1, sensor2)
+                output, _ = sensor_model(sensor1, sensor2)
                 loss = torch.nn.CrossEntropyLoss()(output, labels.argmax(dim=1))
 
                 epoch_val_loss += loss.item()

@@ -142,6 +142,10 @@ class UNet1D(nn.Module):
         self.final_conv = nn.Conv1d(180, latent_dim, kernel_size=1, padding=0)
 
     def forward(self, x, context, time, sensor_pred):
+        x = x.to(context.device)
+        time = time.to(context.device)
+        sensor_pred = sensor_pred.to(context.device)
+
         time_emb = self.time_mlp(time)
         class_emb = self.class_emb(sensor_pred)
         
@@ -202,5 +206,9 @@ class Diffusion1D(nn.Module):
             nn.init.zeros_(m.bias)
 
     def forward(self, latent, context, time, sensor_pred):
+        latent = latent.to(context.device)
+        time = time.to(context.device)
+        sensor_pred = sensor_pred.to(context.device)
+        
         latent = self.unet(latent, context, time, sensor_pred)
         return self.final(latent)
