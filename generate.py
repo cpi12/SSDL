@@ -128,10 +128,10 @@ def generate_samples(args, sensor_model, diffusion_model, device):
     diffusion_model.eval()
 
     with torch.no_grad():
-        _, sensor1, sensor2, label = next(iter(dataloader))
+        _, sensor1, label = next(iter(dataloader))
         label_index = torch.argmax(label, dim=1)
-        sensor1, sensor2 = sensor1.to(device), sensor2.to(device)
-        _, context = sensor_model(sensor1, sensor2, return_attn_output=True)
+        sensor1 = sensor1.to(device)
+        _, context = sensor_model(sensor1, return_attn_output=True)
         check_for_nans(context, "context")  # Check for NaNs in the context
 
         context = context.to(device)
@@ -192,7 +192,7 @@ def main(args):
     
     diffusion_model = load_diffusion_model_for_testing(device, args.output_dir, args.test_diffusion_model)
     
-    skeleton_model = SkeletonLSTMModel(input_size=48, num_classes=12).to(device)
+    skeleton_model = SkeletonLSTMModel(input_size=48, num_classes=13).to(device)
     skeleton_model = load_skeleton_model(args.skeleton_model_path, skeleton_model)
 
     # Generate samples

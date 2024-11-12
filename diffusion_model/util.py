@@ -129,17 +129,15 @@ def min_max_scale(data, data_min, data_max, feature_range=(0, 1)):
 def prepare_dataset(args):
     skeleton_folder = args.skeleton_folder
     sensor_folder1 = args.sensor_folder1
-    sensor_folder2 = args.sensor_folder2
 
     skeleton_data = read_csv_files(skeleton_folder)
     sensor_data1 = read_csv_files(sensor_folder1)
-    sensor_data2 = read_csv_files(sensor_folder2)
 
     # Find common files across all three directories
-    common_files = list(set(skeleton_data.keys()).intersection(set(sensor_data1.keys()), set(sensor_data2.keys())))
+    common_files = list(set(skeleton_data.keys()).intersection(set(sensor_data1.keys())))
 
     if not common_files:
-        raise ValueError("No common files found across the skeleton, sensor1, and sensor2 directories.")
+        raise ValueError("No common files found across the skeleton, sensor1 directories.")
 
     # Ensure consistent column sizes (96 columns for skeleton data)
     for file in common_files:
@@ -159,7 +157,6 @@ def prepare_dataset(args):
     dataset = SlidingWindowDataset(
         skeleton_data=skeleton_data,
         sensor1_data=sensor_data1,
-        sensor2_data=sensor_data2,
         common_files=common_files,
         window_size=window_size,
         overlap=overlap,

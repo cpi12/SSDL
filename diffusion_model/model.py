@@ -93,7 +93,7 @@ class Upsample1D(nn.Module):
         return self.transposed_conv(x)
 
 class UNet1D(nn.Module):
-    def __init__(self, latent_dim=90, time_emb_dim=12, context_dim=512, hidden_dim=128, num_classes=12, dropout_prob=0.5):
+    def __init__(self, latent_dim=90, time_emb_dim=12, context_dim=512, hidden_dim=128, num_classes=13, dropout_prob=0.5):
         super().__init__()
         self.class_emb = nn.Embedding(num_classes, time_emb_dim)
         self.time_mlp = nn.Sequential(
@@ -209,6 +209,6 @@ class Diffusion1D(nn.Module):
         latent = latent.to(context.device)
         time = time.to(context.device)
         sensor_pred = sensor_pred.to(context.device)
-        
+
         latent = self.unet(latent, context, time, sensor_pred)
         return self.final(latent)

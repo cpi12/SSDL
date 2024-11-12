@@ -88,21 +88,18 @@ class CombinedLSTMClassifier(nn.Module):
         super(CombinedLSTMClassifier, self).__init__()
         self.hidden_size = hidden_size
         self.sensor1_conv_lstm = SensorConvLSTMClassifier(sensor_input_size, hidden_size, num_layers, conv_channels, kernel_size, dropout)
-        self.sensor2_conv_lstm = SensorConvLSTMClassifier(sensor_input_size, hidden_size, num_layers, conv_channels, kernel_size, dropout)
 
         self.attention = nn.MultiheadAttention(embed_dim=hidden_size * 2, num_heads=num_heads, dropout=dropout)
         self.fc = nn.Linear(hidden_size * 2, num_classes)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, sensor1_data, sensor2_data, return_attn_output=False):
+    def forward(self, sensor1_data, return_attn_output=False):
         # print(sensor1_data.shape)
         sensor1_out = self.sensor1_conv_lstm(sensor1_data)
-        sensor2_out = self.sensor2_conv_lstm(sensor2_data)
 
         sensor1_out = sensor1_out.unsqueeze(1)
-        sensor2_out = sensor2_out.unsqueeze(1)
 
-        attn_output, _ = self.attention(sensor1_out, sensor2_out, sensor2_out)
+        attn_output, _ = self.attention(sensor1_out, sensor1_out, sensor1_out)
         attn_output = attn_output.squeeze(1)
 
         out = self.dropout(attn_output)

@@ -31,7 +31,7 @@ def ensure_dir(path, rank):
 
 def setup(rank, world_size, seed):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_PORT'] = '12359'
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
 
@@ -73,10 +73,10 @@ def train_sensor_model(rank, args, device, train_loader, val_loader):
         sensor_model.train()
         epoch_train_loss = 0.0
 
-        for _, sensor1, sensor2, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.sensor_epoch} (Training)"):
-            sensor1, sensor2, labels = sensor1.to(device), sensor2.to(device), labels.to(device)
+        for _, sensor1, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.sensor_epoch} (Training)"):
+            sensor1, labels = sensor1.to(device), labels.to(device)
             sensor_optimizer.zero_grad()
-            output, _= sensor_model(sensor1, sensor2)
+            output, _= sensor_model(sensor1)
             loss = torch.nn.CrossEntropyLoss()(output, labels.argmax(dim=1))
 
             loss.backward()
@@ -91,9 +91,9 @@ def train_sensor_model(rank, args, device, train_loader, val_loader):
         sensor_model.eval()
         epoch_val_loss = 0.0
         with torch.no_grad():
-            for _, sensor1, sensor2, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.sensor_epoch} (Validation)"):
-                sensor1, sensor2, labels = sensor1.to(device), sensor2.to(device), labels.to(device)
-                output, _ = sensor_model(sensor1, sensor2)
+            for _, sensor1, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.sensor_epoch} (Validation)"):
+                sensor1, labels = sensor1.to(device), labels.to(device)
+                output, _ = sensor_model(sensor1)
                 loss = torch.nn.CrossEntropyLoss()(output, labels.argmax(dim=1))
 
                 epoch_val_loss += loss.item()
@@ -114,7 +114,7 @@ def train_skeleton_model(rank, args, device, train_loader, val_loader):
     print("Training Skeleton model")
     # Set seed for reproducibility within this process
     torch.manual_seed(args.seed + rank)
-    skeleton_model = SkeletonLSTMModel(input_size=48, num_classes=12).to(device)
+    skeleton_model = SkeletonLSTMModel(input_size=48, num_classes=13).to(device)
     skeleton_model = DDP(skeleton_model, device_ids=[rank], find_unused_parameters=True)
 
     skeleton_optimizer = torch.optim.Adam(
@@ -140,7 +140,7 @@ def train_skeleton_model(rank, args, device, train_loader, val_loader):
         correct_train = 0
         total_train = 0
 
-        for skeleton_data, _, _, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.skeleton_epochs} (Training)"):
+        for skeleton_data, _, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.skeleton_epochs} (Training)"):
             skeleton_data, labels = skeleton_data.to(device), labels.to(device)
             skeleton_optimizer.zero_grad()
             output = skeleton_model(skeleton_data)
@@ -166,7 +166,7 @@ def train_skeleton_model(rank, args, device, train_loader, val_loader):
         correct_val = 0
         total_val = 0
         with torch.no_grad():
-            for skeleton_data, _, _, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.skeleton_epochs} (Validation)"):
+            for skeleton_data, _, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.skeleton_epochs} (Validation)"):
                 skeleton_data, labels = skeleton_data.to(device), labels.to(device)
                 output = skeleton_model(skeleton_data)
                 loss = torch.nn.CrossEntropyLoss()(output, labels.argmax(dim=1))
@@ -207,7 +207,7 @@ def train_diffusion_model(rank, args, device, train_loader, val_loader):
     # Load models
     sensor_model = load_sensor_model(args, device)
     diffusion_model = load_diffusion(device)
-    skeleton_model = SkeletonLSTMModel(input_size=48, num_classes=12).to(device)
+    skeleton_model = SkeletonLSTMModel(input_size=48, num_classes=13).to(device)
 
     # Enable DistributedDataParallel
     sensor_model = DDP(sensor_model, device_ids=[rank], find_unused_parameters=True)
@@ -254,10 +254,10 @@ def train_diffusion_model(rank, args, device, train_loader, val_loader):
         total_train = 0
 
         # Train diffusion model and skeleton model
-        for batch_idx, (skeleton, sensor1, sensor2, mask) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} (Training)")):
-            skeleton, sensor1, sensor2, mask = skeleton.to(device), sensor1.to(device), sensor2.to(device), mask.to(device)
+        for batch_idx, (skeleton, sensor1, mask) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} (Training)")):
+            skeleton, sensor1, mask = skeleton.to(device), sensor1.to(device), mask.to(device)
             t = torch.randint(1, args.timesteps, (skeleton.shape[0],), device=device).long()
-            output, context = sensor_model(sensor1, sensor2, return_attn_output=True)
+            output, context = sensor_model(sensor1, return_attn_output=True)
             mask = mask.argmax(dim=1)
             diffusion_optimizer.zero_grad()
             skeleton_optimizer.zero_grad()
@@ -311,10 +311,10 @@ def train_diffusion_model(rank, args, device, train_loader, val_loader):
         correct_val = 0
         total_val = 0
         with torch.no_grad():
-            for batch_idx, (skeleton, sensor1, sensor2, mask) in enumerate(tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} (Validation)")):
-                skeleton, sensor1, sensor2, mask = skeleton.to(device), sensor1.to(device), sensor2.to(device), mask.to(device)
+            for batch_idx, (skeleton, sensor1, mask) in enumerate(tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} (Validation)")):
+                skeleton, sensor1, mask = skeleton.to(device), sensor1.to(device), mask.to(device)
                 t = torch.randint(1, args.timesteps, (skeleton.shape[0],), device=device).long()
-                output, context = sensor_model(sensor1, sensor2, return_attn_output=True)
+                output, context = sensor_model(sensor1, return_attn_output=True)
                 mask = mask.argmax(dim=1)
 
                 # Compute validation loss for diffusion model
@@ -389,8 +389,7 @@ def main(rank, args):
 
     # Prepare the full dataset
     dataset = prepare_dataset(args)
-    labels = [dataset[i][3] for i in range(len(dataset))]
-
+    labels = [dataset[i][2] for i in range(len(dataset))]
     if isinstance(labels[0], (list, torch.Tensor, np.ndarray)):
         labels = [torch.argmax(torch.tensor(label)).item() for label in labels]
 
@@ -432,8 +431,7 @@ if __name__ == "__main__":
     parser.add_argument("--overlap", type=int, default=45, help="Overlap for the sliding window dataset")
     parser.add_argument("--window_size", type=int, default=90, help="Window size for the sliding window dataset")
     parser.add_argument("--skeleton_folder", type=str, default="./Own_Data/Labelled_Student_data/Skeleton_Data", help="Path to the skeleton data folder")
-    parser.add_argument("--sensor_folder1", type=str, default="./Own_Data/Labelled_Student_data/Accelerometer_Data/Meta_wrist", help="Path to the first sensor data folder")
-    parser.add_argument("--sensor_folder2", type=str, default="./Own_Data/Labelled_Student_data/Accelerometer_Data/Meta_hip", help="Path to the second sensor data folder")
+    parser.add_argument("--sensor_folder1", type=str, default="./Own_Data/Labelled_Student_data/Accelerometer_Data/W_Accel_Final", help="Path to the first sensor data folder")
 
     #Epoches to train the models
     parser.add_argument("--epochs", type=int, default=3000, help="Number of epochs to train the diffusion model")
