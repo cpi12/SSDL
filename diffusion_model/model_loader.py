@@ -48,7 +48,7 @@ def load_sensor_model(args, device):
         sensor_input_size=3, 
         hidden_size=256, 
         num_layers=8, 
-        num_classes=12, 
+        num_classes=13,
         conv_channels=16, 
         kernel_size=3, 
         dropout=0.5, 

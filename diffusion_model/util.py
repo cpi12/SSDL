@@ -152,6 +152,10 @@ def prepare_dataset(args):
     label_encoder = OneHotEncoder(sparse_output=False)
     label_encoder.fit([[code] for code in activity_codes])
 
+    # **Add this line here**
+    n_classes = len(label_encoder.categories_[0])
+    print(f"Activity codes: {activity_codes}, Number of classes: {n_classes}")
+
     window_size = args.window_size
     overlap = args.overlap
 

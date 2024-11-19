@@ -192,7 +192,7 @@ def main(args):
     
     diffusion_model = load_diffusion_model_for_testing(device, args.output_dir, args.test_diffusion_model)
     
-    skeleton_model = SkeletonLSTMModel(input_size=48, num_classes=12).to(device)
+    skeleton_model = SkeletonLSTMModel(input_size=48, num_classes=13).to(device)
     skeleton_model = load_skeleton_model(args.skeleton_model_path, skeleton_model)
 
     # Generate samples

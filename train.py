@@ -31,7 +31,7 @@ def ensure_dir(path, rank):
 
 def setup(rank, world_size, seed):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_PORT'] = '12358'
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
 
@@ -114,7 +114,7 @@ def train_skeleton_model(rank, args, device, train_loader, val_loader):
     print("Training Skeleton model")
     # Set seed for reproducibility within this process
     torch.manual_seed(args.seed + rank)
-    skeleton_model = SkeletonLSTMModel(input_size=48, num_classes=12).to(device)
+    skeleton_model = SkeletonLSTMModel(input_size=48, num_classes=13).to(device)
     skeleton_model = DDP(skeleton_model, device_ids=[rank], find_unused_parameters=True)
 
     skeleton_optimizer = torch.optim.Adam(
@@ -207,7 +207,7 @@ def train_diffusion_model(rank, args, device, train_loader, val_loader):
     # Load models
     sensor_model = load_sensor_model(args, device)
     diffusion_model = load_diffusion(device)
-    skeleton_model = SkeletonLSTMModel(input_size=48, num_classes=12).to(device)
+    skeleton_model = SkeletonLSTMModel(input_size=48, num_classes=13).to(device)
 
     # Enable DistributedDataParallel
     sensor_model = DDP(sensor_model, device_ids=[rank], find_unused_parameters=True)
@@ -432,8 +432,8 @@ if __name__ == "__main__":
     parser.add_argument("--overlap", type=int, default=45, help="Overlap for the sliding window dataset")
     parser.add_argument("--window_size", type=int, default=90, help="Window size for the sliding window dataset")
     parser.add_argument("--skeleton_folder", type=str, default="./Own_Data/Labelled_Student_data/Skeleton_Data", help="Path to the skeleton data folder")
-    parser.add_argument("--sensor_folder1", type=str, default="./Own_Data/Labelled_Student_data/Accelerometer_Data/Meta_wrist", help="Path to the first sensor data folder")
-    parser.add_argument("--sensor_folder2", type=str, default="./Own_Data/Labelled_Student_data/Accelerometer_Data/Meta_hip", help="Path to the second sensor data folder")
+    parser.add_argument("--sensor_folder1", type=str, default="./Own_Data/Labelled_Student_data/Accelerometer_Data/W_Accel_Final", help="Path to the first sensor data folder")
+    parser.add_argument("--sensor_folder2", type=str, default="./Own_Data/Labelled_Student_data/Accelerometer_Data/P_Accel_Final", help="Path to the second sensor data folder")
 
     #Epoches to train the models
     parser.add_argument("--epochs", type=int, default=3000, help="Number of epochs to train the diffusion model")
